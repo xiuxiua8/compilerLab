@@ -14,12 +14,16 @@ class DFA {
     string startState;
     set<string> acceptStates;
     map<pair<string, string>, string> transitions;
+    map<string, string> stateTypes; // 存储状态和对应的类型
 
 public:
     bool loadFromFile(const string& filename);
     bool validate();
     bool simulate(const string& input);
     void generateLanguage(int maxLength);
+    set<string> getAcceptStates() const { return acceptStates; }
+    string getEndState(const string& input) const;
+    string getStateType(const string& state) const;
 
 private:
     void generateAllStrings(const string& current, int maxLength, vector<string>& results);
@@ -45,14 +49,31 @@ bool DFA::loadFromFile(const string& filename) {
             startState.erase(0, startState.find_first_not_of(" \t"));
         } else if (line.find("accept:") == 0) {
             istringstream iss(line.substr(7));
-            string state;
-            while (iss >> state) acceptStates.insert(state);
+            string state, type;
+            while (iss >> state) {
+                // 尝试读取状态对应的类型
+                if (iss.peek() == ':') {
+                    iss.ignore();
+                    iss >> type;
+                    stateTypes[state] = type;
+                }
+                acceptStates.insert(state);
+            }
         } else if (line.find("transition:") == 0) {
             while (getline(file, line) && !line.empty()) {
                 istringstream iss(line);
                 string from, symbol, to;
                 if (iss >> from >> symbol >> to) {
                     transitions[{from, symbol}] = to;
+                }
+            }
+        } else if (line.find("types:") == 0) {
+            // 额外的类型定义部分
+            while (getline(file, line) && !line.empty()) {
+                istringstream iss(line);
+                string state, type;
+                if (iss >> state >> type) {
+                    stateTypes[state] = type;
                 }
             }
         }
@@ -113,6 +134,44 @@ void DFA::generateAllStrings(const string& current, int maxLength, vector<string
     }
 }
 
+// 模拟DFA并返回最终状态
+string DFA::getEndState(const string& input) const {
+    string current = startState;
+    for (char c : input) {
+        string symbol(1, c);
+        if (alphabet.find(symbol) == alphabet.end()) return "ERROR";
+        auto it = transitions.find({current, symbol});
+        if (it == transitions.end()) return "ERROR";
+        current = it->second;
+    }
+    return current;
+}
+
+// 获取状态对应的类型
+string DFA::getStateType(const string& state) const {
+    auto it = stateTypes.find(state);
+    if (it != stateTypes.end()) {
+        return it->second;
+    }
+    // 这里可以根据状态名称推断类型
+    // 例如：如果状态名包含"ID"，则返回"ID"
+    //0 2 4A 5 6 8 A AB C CD EF F FG
+    if (state.find("0") != string::npos) return "0";
+    if (state.find("2") != string::npos) return "SCO";   
+    if (state.find("4A") != string::npos) return "ADD";
+    if (state.find("5") != string::npos) return "AAS";
+    if (state.find("6") != string::npos) return "AAA";
+    if (state.find("8") != string::npos) return "ID/INT";
+    //if (state.find("A") != string::npos) return "SUB";
+    if (state.find("AB") != string::npos) return "NUM";
+    //if (state.find("C") != string::npos) return "C";
+    if (state.find("CD") != string::npos) return "FLO";
+    if (state.find("EF") != string::npos) return "EF";
+    //if (state.find("F") != string::npos) return "F";
+    if (state.find("FG") != string::npos) return "FLO";
+    return "UNKNOWN";
+}
+
 int main() {
     DFA dfa;
     if (!dfa.loadFromFile("dfa.txt")) {
@@ -124,18 +183,60 @@ int main() {
         return 1;
     }
 
-    int N;
-    cout << "请输入最大字符串长度 N：";
-    cin >> N;
-    dfa.generateLanguage(N);
+    int mode;
+    cout << "请选择运行模式 (1: 批量分析符号串, 2: 词法分析): ";
+    cin >> mode;
 
-    string testStr;
-    cout << "请输入要测试的字符串：";
-    cin >> testStr;
-    if (dfa.simulate(testStr)) {
-        cout << "该字符串被接受。\n";
+    if (mode == 1) {
+        int n;
+        cout << "请输入符号串个数: ";
+        cin >> n;
+        
+        vector<pair<string, string>> results; // 存储类型和原字符串对
+        string token;
+        cout << "请输入" << n << "个用空格分隔的符号串: ";
+        
+        for (int i = 0; i < n; i++) {
+            cin >> token;
+            string endState = dfa.getEndState(token);
+            if (endState != "ERROR" && dfa.getAcceptStates().count(endState) > 0) {
+                results.push_back({dfa.getStateType(endState), token});
+            } else {
+                results.push_back({"ERROR", token});
+            }
+        }
+        
+        // 输出所有符号串的类型和原字符串
+        for (const auto& result : results) {
+            cout << result.first << " (" << result.second << ") ";
+        }
+        cout << endl;
+    } else if (mode == 2) {
+        string line;
+        cout << "请输入一行语句进行词法分析: ";
+        cin.ignore(); // 清除输入缓冲区
+        getline(cin, line);
+        
+        istringstream iss(line);
+        string token;
+        vector<pair<string, string>> results; // 存储类型和原字符串对
+        
+        while (iss >> token) {
+            string endState = dfa.getEndState(token);
+            if (endState != "ERROR" && dfa.getAcceptStates().count(endState) > 0) {
+                results.push_back({dfa.getStateType(endState), token});
+            } else {
+                results.push_back({"ERROR", token});
+            }
+        }
+        
+        // 输出所有符号串的类型和原字符串
+        for (const auto& result : results) {
+            cout << result.first << " (" << result.second << ") ";
+        }
+        cout << endl;
     } else {
-        cout << "该字符串被拒绝。\n";
+        cout << "无效的运行模式，请选择1或2。\n";
     }
 
     return 0;
