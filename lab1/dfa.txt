@@ -1,12 +1,25 @@
-alphabet: + - . 0 1 2 3 4 5 6 7 8 9 ; = A B C D E F G H I J K L M N O P Q R S T U V W X Y Z a b c d e f g h i j k l m n o p q r s t u v w x y z
-states: 0 2 4A 5 6 8 A AB C CD EF F FG
+alphabet: ; - + . / * = ( ) [ ] { } , < 1 2 3 4 5 6 7 8 9 0 A B C D E F G H I J K L M N O P Q R S T U V W X Y Z a b c d e f g h i j k l m n o p q r s t u v w x y z
+states: 0 2 4A 5 6 8 A AB C CD EF F FG DIV MUL ASG LPA RPA LBK RBK LBR RBR CMA SCO ROP
 start: 0
-accept: 2 5 6 8 AB CD FG
+accept: 2 4A 5 6 8 A AB CD FG DIV MUL ASG LPA RPA LBK RBK LBR RBR CMA SCO ROP
 transition:
 0 ; 2
 0 - A
 0 + 4A
 0 . C
+0 / DIV 
+0 * MUL
+0 = ASG
+0 ( LPA
+0 ) RPA
+0 [ LBK
+0 ] RBK
+0 { LBR
+0 } RBR
+0 , CMA
+0 < ROP
+ROP = ROP
+ASG = ROP
 A . C
 AB . CD
 4A . C

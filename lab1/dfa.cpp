@@ -169,6 +169,20 @@ string DFA::getStateType(const string& state) const {
     if (state.find("EF") != string::npos) return "EF";
     //if (state.find("F") != string::npos) return "F";
     if (state.find("FG") != string::npos) return "FLO";
+    //DIV MUL ASG LPA RPA LBK RBK LBR RBR CMA SCO ROP
+    if (state.find("DIV") != string::npos) return "DIV";
+    if (state.find("MUL") != string::npos) return "MUL";
+    if (state.find("ASG") != string::npos) return "ASG";
+    if (state.find("LPA") != string::npos) return "LPA";
+    if (state.find("RPA") != string::npos) return "RPA";
+    if (state.find("LBK") != string::npos) return "LBK";
+    if (state.find("RBK") != string::npos) return "RBK";
+    if (state.find("LBR") != string::npos) return "LBR";
+    if (state.find("RBR") != string::npos) return "RBR";
+    if (state.find("CMA") != string::npos) return "CMA";
+    //if (state.find("SCO") != string::npos) return "SCO";
+    if (state.find("ROP") != string::npos) return "ROP";
+    
     return "UNKNOWN";
 }
 
@@ -208,7 +222,8 @@ int main() {
         
         // 输出所有符号串的类型和原字符串
         for (const auto& result : results) {
-            cout << result.first << " (" << result.second << ") ";
+            cout << " (" << result.first << ", " << result.second << ") ";
+            cout << endl;
         }
         cout << endl;
     } else if (mode == 2) {
@@ -232,7 +247,8 @@ int main() {
         
         // 输出所有符号串的类型和原字符串
         for (const auto& result : results) {
-            cout << result.first << " (" << result.second << ") ";
+            cout << " (" << result.first << ", " << result.second << ") ";
+            cout << endl;
         }
         cout << endl;
     } else {
