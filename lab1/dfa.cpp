@@ -5,6 +5,7 @@
 #include <map>
 #include <set>
 #include <queue>
+#include <algorithm>
 
 using namespace std;
 
@@ -15,6 +16,7 @@ class DFA {
     set<string> acceptStates;
     map<pair<string, string>, string> transitions;
     map<string, string> stateTypes; // 存储状态和对应的类型
+    set<string> keywords; // 存储关键字集合
 
 public:
     bool loadFromFile(const string& filename);
@@ -24,6 +26,8 @@ public:
     set<string> getAcceptStates() const { return acceptStates; }
     string getEndState(const string& input) const;
     string getStateType(const string& state) const;
+    string classifyToken(const string& type, const string& token) const;
+    void initKeywords();
 
 private:
     void generateAllStrings(const string& current, int maxLength, vector<string>& results);
@@ -161,7 +165,8 @@ string DFA::getStateType(const string& state) const {
     if (state.find("4A") != string::npos) return "ADD";
     if (state.find("5") != string::npos) return "AAS";
     if (state.find("6") != string::npos) return "AAA";
-    if (state.find("8") != string::npos) return "ID/INT";
+    //if (state.find("8") != string::npos) return "ID/INT";
+    if (state.find("8") != string::npos) return "ID";
     //if (state.find("A") != string::npos) return "SUB";
     if (state.find("AB") != string::npos) return "NUM";
     //if (state.find("C") != string::npos) return "C";
@@ -186,8 +191,54 @@ string DFA::getStateType(const string& state) const {
     return "UNKNOWN";
 }
 
+// 初始化关键字集合
+void DFA::initKeywords() {
+    // 添加C语言常见关键字
+    keywords.insert("if");
+    keywords.insert("else");
+    keywords.insert("while");
+    keywords.insert("for");
+    keywords.insert("do");
+    keywords.insert("int");
+    keywords.insert("float");
+    keywords.insert("double");
+    keywords.insert("char");
+    keywords.insert("void");
+    keywords.insert("return");
+    keywords.insert("break");
+    keywords.insert("continue");
+    keywords.insert("switch");
+    keywords.insert("case");
+    keywords.insert("default");
+    keywords.insert("typedef");
+    keywords.insert("struct");
+    keywords.insert("union");
+    keywords.insert("const");
+    // 可以根据需要添加更多关键字
+}
+
+// 分类词法单元：普通标识符还是关键字
+string DFA::classifyToken(const string& type, const string& token) const {
+    string result;
+    
+    // 如果是ID类型，检查是否为关键字
+    if (type == "ID" && keywords.count(token) > 0) {
+        result = token; // 关键字本身作为类型
+    } else {
+        // 其他情况返回原始类型
+        result = type;
+    }
+    
+    // 将结果转换为大写
+    transform(result.begin(), result.end(), result.begin(), ::toupper);
+    return result;
+}
+
 int main() {
     DFA dfa;
+    // 初始化关键字表
+    dfa.initKeywords();
+    
     if (!dfa.loadFromFile("dfa.txt")) {
         cout << "无法打开 DFA 配置文件。\n";
         return 1;
@@ -214,7 +265,10 @@ int main() {
             cin >> token;
             string endState = dfa.getEndState(token);
             if (endState != "ERROR" && dfa.getAcceptStates().count(endState) > 0) {
-                results.push_back({dfa.getStateType(endState), token});
+                string type = dfa.getStateType(endState);
+                // 使用两阶段处理：先识别词法单元形态，再判断是否为关键字
+                type = dfa.classifyToken(type, token);
+                results.push_back({type, token});
             } else {
                 results.push_back({"ERROR", token});
             }
@@ -239,7 +293,10 @@ int main() {
         while (iss >> token) {
             string endState = dfa.getEndState(token);
             if (endState != "ERROR" && dfa.getAcceptStates().count(endState) > 0) {
-                results.push_back({dfa.getStateType(endState), token});
+                string type = dfa.getStateType(endState);
+                // 使用两阶段处理：先识别词法单元形态，再判断是否为关键字
+                type = dfa.classifyToken(type, token);
+                results.push_back({type, token});
             } else {
                 results.push_back({"ERROR", token});
             }
