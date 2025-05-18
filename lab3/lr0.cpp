@@ -159,34 +159,27 @@ struct ItemSet {
     set<Item> items;
     
     bool operator<(const ItemSet& other) const {
-        // 将集合转为向量以便比较
-        vector<Item> this_items(items.begin(), items.end());
-        vector<Item> other_items(other.items.begin(), other.items.end());
-        
-        if (this_items.size() != other_items.size()) {
-            return this_items.size() < other_items.size();
-        }
-        
-        for (size_t i = 0; i < this_items.size(); ++i) {
-            if (this_items[i].production_id != other_items[i].production_id) {
-                return this_items[i].production_id < other_items[i].production_id;
-            }
-            if (this_items[i].dot_pos != other_items[i].dot_pos) {
-                return this_items[i].dot_pos < other_items[i].dot_pos;
-            }
-        }
-        return false; // 相等
+        // 简化为直接比较两个set
+        return items < other.items;
     }
     
     bool operator==(const ItemSet& other) const {
         return items == other.items;
     }
 
-    void print_itemset() {
+    void print_itemset(const Grammar& g, int idx) {
+        cout << "项目集I" << idx << "内容:" << endl;
         for (const auto& item : items) {
-            cout << item.production_id << ',' << item.dot_pos << ' ';
+            const auto& prod = g.productions[item.production_id];
+            cout << "  " << prod.left << " → ";
+            for (int j = 0; j < (int)prod.right.size(); ++j) {
+                if (j == item.dot_pos) cout << ". ";
+                cout << prod.right[j] << ' ';
+            }
+            if (item.dot_pos == (int)prod.right.size()) cout << ".";
+            cout << " [" << item.production_id << "," << item.dot_pos << "]" << endl;
         }
-        cout << endl;
+    
     }
 };
 
@@ -217,14 +210,34 @@ ItemSet closure(const ItemSet& I, const Grammar& g) {
 // Goto函数
 ItemSet Goto(const ItemSet& I, const string& X, const Grammar& g) {
     ItemSet goto_set;
+    cout << "  调试Goto - 对于符号 " << X << ":" << endl;
+
     for (const auto& item : I.items) {
-        if (item.dot_pos < (int)g.productions[item.production_id].right.size() &&
-            g.productions[item.production_id].right[item.dot_pos] == X) {
+        const auto& prod = g.productions[item.production_id];
+        cout << "    检查项目: " << prod.left << " → ";
+        for (int j = 0; j < (int)prod.right.size(); ++j) {
+            if (j == item.dot_pos) cout << ". ";
+            cout << prod.right[j] << ' ';
+        }
+        if (item.dot_pos == (int)prod.right.size()) cout << ".";
+        
+        bool condition1 = item.dot_pos < (int)prod.right.size();
+        string right_of_dot = condition1 ? prod.right[item.dot_pos] : "END";
+        bool condition2 = condition1 && right_of_dot == X;
+        
+        cout << " - 点位置: " << item.dot_pos << ", 产生式长度: " << prod.right.size();
+        cout << ", 点后符号: " << (condition1 ? right_of_dot : "无") << ", 匹配: " << (condition2 ? "是" : "否") << endl;
+       
+        if (condition1 && right_of_dot == X) {
             Item moved = {item.production_id, item.dot_pos + 1};
             goto_set.items.insert(moved);
         }
     }
-    return closure(goto_set, g);
+    
+    ItemSet result = closure(goto_set, g);
+    cout << "  Goto结果项目集包含 " << result.items.size() << " 个项目" << endl;
+    
+    return result;
 }
 
 // Canonical Collection of LR(0) Items
@@ -246,25 +259,83 @@ CanonicalCollection build_canonical_collection(const Grammar& g) {
     C.push_back(I0);
     set_id[I0] = 0;
 
-    I0.print_itemset();
+    I0.print_itemset(g, 0);
 
     q.push(0);
     while (!q.empty()) {
         int idx = q.front(); q.pop();
-        const ItemSet& I = C[idx];
-        std::set<std::string> symbols = g.terminals;
-        symbols.insert(g.nonterminals.begin(), g.nonterminals.end());
-        for (const auto& X : symbols) {
-            ItemSet gotoI = Goto(I, X, g);
-            if (gotoI.items.empty()) continue;
-            if (set_id.count(gotoI) == 0) {
-                int new_id = C.size();
-                C.push_back(gotoI);
-                set_id[gotoI] = new_id;
-                q.push(new_id);
+        ItemSet I = C[idx]; // 使用拷贝而非引用
+        
+        cout << "处理状态 I" << idx << ":" << endl;
+        cout << "  状态 I" << idx << " 项目集包含 " << I.items.size() << " 个项目" << endl;
+        
+        // 打印项目集内容
+        for (const auto& item : I.items) {
+            const auto& prod = g.productions[item.production_id];
+            cout << "    项目: " << prod.left << " → ";
+            for (int j = 0; j < (int)prod.right.size(); ++j) {
+                if (j == item.dot_pos) cout << ". ";
+                cout << prod.right[j] << ' ';
             }
-            cc.transitions[{idx, X}] = set_id[gotoI];
+            if (item.dot_pos == (int)prod.right.size()) cout << ".";
+            cout << endl;
         }
+        
+        // 对所有符号计算GOTO
+        for (const auto& X : g.nonterminals) {
+            ItemSet gotoI = Goto(I, X, g);
+            if (!gotoI.items.empty()) {
+                // 查找是否已存在相同的项目集
+                int target_id = -1;
+                for (size_t i = 0; i < C.size(); i++) {
+                    if (C[i].items == gotoI.items) {
+                        target_id = i;
+                        break;
+                    }
+                }
+                
+                if (target_id == -1) {
+                    // 新项目集
+                    target_id = C.size();
+                    C.push_back(gotoI);
+                    set_id[gotoI] = target_id;
+                    q.push(target_id);
+                    cout << "  添加新状态 I" << target_id << " 来自 GOTO(I" << idx << ", " << X << ")" << endl;
+                } else {
+                    cout << "  已存在状态 I" << target_id << " 来自 GOTO(I" << idx << ", " << X << ")" << endl;
+                }
+                
+                cc.transitions[{idx, X}] = target_id;
+            }
+        }
+        for (const auto& X : g.terminals) {
+            ItemSet gotoI = Goto(I, X, g);
+            if (!gotoI.items.empty()) {
+                // 查找是否已存在相同的项目集
+                int target_id = -1;
+                for (size_t i = 0; i < C.size(); i++) {
+                    if (C[i].items == gotoI.items) {
+                        target_id = i;
+                        break;
+                    }
+                }
+                
+                if (target_id == -1) {
+                    // 新项目集
+                    target_id = C.size();
+                    C.push_back(gotoI);
+                    set_id[gotoI] = target_id;
+                    q.push(target_id);
+                    cout << "  添加新状态 I" << target_id << " 来自 GOTO(I" << idx << ", " << X << ")" << endl;
+                } else {
+                    cout << "  已存在状态 I" << target_id << " 来自 GOTO(I" << idx << ", " << X << ")" << endl;
+                }
+                
+                cc.transitions[{idx, X}] = target_id;
+            }
+        }
+        
+
     }
     cc.C = C;
     return cc;
@@ -443,7 +514,6 @@ int main() {
 
     g.compute_follow();
     g.print_grammar();
-
 
     // 构建SLR(1)分析表
     SLRTable slr = build_slr_table(g, cc);
