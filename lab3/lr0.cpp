@@ -31,11 +31,14 @@ public:
     set<string> nonterminals;
     set<string> terminals;
     string start_symbol;
+    map<string, set<string>> first;
     map<string, set<string>> follow;
 
     void parse(const vector<string>& rules);
+    void compute_first();
     void compute_follow();
     void print_grammar();
+    bool compute_first_of_string(const vector<string>& str, set<string>& result);
 };
 
 void Grammar::parse(const vector<string>& rules) {
@@ -81,43 +84,179 @@ void Grammar::parse(const vector<string>& rules) {
     nonterminals.insert(new_start);
     start_symbol = new_start;
 }
-
-void Grammar::compute_follow() {
-    follow.clear();
-    for (const auto& nt : nonterminals) follow[nt] = {};
-    // 起始符号加入#
-    follow[start_symbol].insert("#");
+void Grammar::compute_first() {
+    // 初始化：终结符的FIRST集就是它自身
+    for (const auto& t : terminals) first[t] = {t};
+    // 初始化：空串的FIRST集就是空串自身
+    first["ε"] = {"ε"};
+    // 初始化：所有非终结符的FIRST集为空集
+    for (const auto& nt : nonterminals) first[nt] = {};
+    
+    // 使用固定点算法计算FIRST集，直到没有任何变化
     bool changed = true;
     while (changed) {
         changed = false;
+        // 遍历所有产生式
+        for (const auto& prod : productions) {
+            string A = prod.left;
+            const vector<string>& alpha = prod.right;
+            
+            // 处理空产生式: A → ε
+            if (alpha.empty() || (alpha.size() == 1 && alpha[0] == "ε")) {
+                if (first[A].insert("ε").second) {
+                    changed = true;
+                }
+                continue;
+            }
+            
+            // 遍历产生式右部的每个符号
+            bool all_nullable = true;
+            for (size_t i = 0; i < alpha.size(); ++i) {
+                string symbol = alpha[i];
+                bool symbol_nullable = false;
+                
+                // 将FIRST(symbol)中除ε外的所有符号加入FIRST(A)
+                for (const auto& f : first[symbol]) {
+                    if (f == "ε") {
+                        symbol_nullable = true;
+                    } else if (first[A].insert(f).second) {
+                        changed = true;
+                    }
+                }
+                
+                // 如果当前符号不可空，则后续符号不会对FIRST(A)有贡献
+                if (!symbol_nullable) {
+                    all_nullable = false;
+                    break;
+                }
+            }
+            
+            // 如果产生式右部所有符号都可空，则将ε加入FIRST(A)
+            if (all_nullable && first[A].insert("ε").second) {
+                changed = true;
+            }
+        }
+    }
+    
+    // 输出FIRST集，方便调试
+    if (DEBUG_MODE) {
+        cout << "=== FIRST集 ===" << endl;
+        for (const auto& nt : nonterminals) {
+            cout << "FIRST(" << nt << ") = { ";
+            for (const auto& f : first[nt]) cout << f << ' ';
+            cout << "}" << endl;
+        }
+        
+        // 也输出终结符的FIRST集
+        for (const auto& t : terminals) {
+            cout << "FIRST(" << t << ") = { ";
+            for (const auto& f : first[t]) cout << f << ' ';
+            cout << "}" << endl;
+        }
+    }
+}
+
+void Grammar::compute_follow() {
+    follow.clear();
+    // 初始化：所有非终结符的FOLLOW集为空集
+    for (const auto& nt : nonterminals) follow[nt] = {};
+    // 规则1：将输入结束符#加入FOLLOW(S)，其中S是文法的开始符号
+    follow[start_symbol].insert("#");
+    
+    bool changed = true;
+    // 使用固定点算法计算FOLLOW集，直到没有任何变化
+    while (changed) {
+        changed = false;
+        // 遍历所有产生式
         for (const auto& prod : productions) {
             const string& A = prod.left;
+            
+            // 遍历产生式右部的每个符号
             for (size_t i = 0; i < prod.right.size(); ++i) {
                 const string& B = prod.right[i];
+                // 只处理非终结符
                 if (nonterminals.count(B)) {
-                    // B后面所有符号的FIRST集（此处直接用终结符）
-                    bool nullable = true;
-                    for (size_t j = i + 1; j < prod.right.size(); ++j) {
-                        const string& sym = prod.right[j];
-                        if (terminals.count(sym)) {
-                            if (follow[B].insert(sym).second) changed = true;
-                            nullable = false;
-                            break;
-                        } else if (nonterminals.count(sym)) {
-                            // 这里简化：只加非终结符的FIRST集中的终结符
-                            // 实际应递归求FIRST集，这里假设无空串产生式
-                            break;
+                    // 规则2：对于产生式A→αBβ，将FIRST(β)中除ε外的所有符号加入FOLLOW(B)
+                    if (i + 1 < prod.right.size()) {
+                        // 构建β
+                        vector<string> beta(prod.right.begin() + i + 1, prod.right.end());
+                        
+                        // 计算FIRST(β)
+                        set<string> first_beta;
+                        bool beta_contains_epsilon = compute_first_of_string(beta, first_beta);
+                        
+                        // 将FIRST(β)中除ε外的所有符号加入FOLLOW(B)
+                        for (const auto& f : first_beta) {
+                            if (f != "ε" && follow[B].insert(f).second) {
+                                changed = true;
+                            }
                         }
-                    }
-                    if (nullable || i + 1 == prod.right.size()) {
+                        
+                        // 规则3：如果β可导出ε，将FOLLOW(A)加入FOLLOW(B)
+                        if (beta_contains_epsilon) {
+                            for (const auto& f : follow[A]) {
+                                if (follow[B].insert(f).second) {
+                                    changed = true;
+                                }
+                            }
+                        }
+                    } 
+                    // 规则3：对于产生式A→αB，将FOLLOW(A)加入FOLLOW(B)
+                    else {
                         for (const auto& f : follow[A]) {
-                            if (follow[B].insert(f).second) changed = true;
+                            if (follow[B].insert(f).second) {
+                                changed = true;
+                            }
                         }
                     }
                 }
             }
         }
     }
+    
+    if (DEBUG_MODE) {
+        cout << "=== FOLLOW集 ===" << endl;
+        for (const auto& nt : nonterminals) {
+            cout << "FOLLOW(" << nt << ") = { ";
+            for (const auto& f : follow[nt]) cout << f << ' ';
+            cout << "}" << endl;
+        }
+    }
+}
+
+// 计算字符串的FIRST集
+bool Grammar::compute_first_of_string(const vector<string>& str, set<string>& result) {
+    if (str.empty()) {
+        result.insert("ε");
+        return true;
+    }
+    
+    bool all_nullable = true;
+    for (size_t i = 0; i < str.size(); ++i) {
+        const string& X = str[i];
+        bool nullable = false;
+        
+        // 将FIRST(X)中除ε外的所有符号加入result
+        for (const auto& f : first[X]) {
+            if (f == "ε") {
+                nullable = true;
+            } else {
+                result.insert(f);
+            }
+        }
+        
+        // 如果X不可空，则后续符号不会对FIRST(str)有贡献
+        if (!nullable) {
+            all_nullable = false;
+            break;
+        }
+    }
+    
+    if (all_nullable) {
+        result.insert("ε");
+    }
+    
+    return all_nullable;
 }
 
 void Grammar::print_grammar() {
@@ -393,8 +532,18 @@ struct SLRTable {
 
 SLRTable build_slr_table(const Grammar& g, const CanonicalCollection& cc) {
     SLRTable table;
+    
+    if (DEBUG_MODE) {
+        cout << "\n=== 构建SLR(1)分析表 ===" << endl;
+    }
+    
     for (size_t i = 0; i < cc.C.size(); ++i) {
         const ItemSet& I = cc.C[i];
+        
+        if (DEBUG_MODE) {
+            cout << "处理状态 I" << i << ":" << endl;
+        }
+        
         // 1. 归约/接受
         for (const auto& item : I.items) {
             const auto& prod = g.productions[item.production_id];
@@ -403,36 +552,76 @@ SLRTable build_slr_table(const Grammar& g, const CanonicalCollection& cc) {
                 if (prod.left == g.start_symbol) {
                     // S' → S. 接受
                     table.ACTION[i]["#"] = "acc";
+                    
+                    if (DEBUG_MODE) {
+                        cout << "  设置 ACTION[" << i << ", #] = acc" << endl;
+                    }
                 } else {
                     // 对FOLLOW(left)内的终结符填rX
                     for (const auto& a : g.follow.at(prod.left)) {
                         string& cell = table.ACTION[i][a];
                         string act = "r" + to_string(item.production_id);
+                        
+                        if (DEBUG_MODE) {
+                            cout << "  " << prod.left << " 的FOLLOW集包含 " << a;
+                            cout << "，设置 ACTION[" << i << ", " << a << "] = " << act;
+                        }
+                        
                         if (!cell.empty() && cell != act) {
                             table.conflicts.push_back("归约冲突: 状态" + to_string(i) + ", 符号" + a + ", " + cell + " vs " + act);
+                            
+                            if (DEBUG_MODE) {
+                                cout << " (冲突，已存在 " << cell << ")";
+                            }
                         }
+                        
                         cell = act;
+                        
+                        if (DEBUG_MODE) {
+                            cout << endl;
+                        }
                     }
                 }
             }
         }
+        
         // 2. 移进
         for (const auto& t : g.terminals) {
             auto it = cc.transitions.find({(int)i, t});
             if (it != cc.transitions.end()) {
                 string& cell = table.ACTION[i][t];
                 string act = "s" + to_string(it->second);
+                
+                if (DEBUG_MODE) {
+                    cout << "  状态 I" << i << " 通过 " << t << " 转移到 I" << it->second;
+                    cout << "，设置 ACTION[" << i << ", " << t << "] = " << act;
+                }
+                
                 if (!cell.empty() && cell != act) {
                     table.conflicts.push_back("移进冲突: 状态" + to_string(i) + ", 符号" + t + ", " + cell + " vs " + act);
+                    
+                    if (DEBUG_MODE) {
+                        cout << " (冲突，已存在 " << cell << ")";
+                    }
                 }
+                
                 cell = act;
+                
+                if (DEBUG_MODE) {
+                    cout << endl;
+                }
             }
         }
+        
         // 3. GOTO
         for (const auto& nt : g.nonterminals) {
             auto it = cc.transitions.find({(int)i, nt});
             if (it != cc.transitions.end()) {
                 table.GOTO[i][nt] = it->second;
+                
+                if (DEBUG_MODE) {
+                    cout << "  设置 GOTO[" << i << ", " << nt << "] = " << it->second << endl;
+                }
             }
         }
     }
@@ -500,13 +689,18 @@ int main(int argc, char* argv[]) {
     };
     
     Grammar g;
-    g.parse(rules3);
-
+    g.parse(rules0);
+    
+    // 首先计算FIRST集
+    g.compute_first();
+    
+    // 然后计算FOLLOW集
+    g.compute_follow();
+    
+    g.print_grammar();
+    
     // 构建LR(0)项目集规范族
     CanonicalCollection cc = build_canonical_collection(g);
-    g.compute_follow();
-
-    g.print_grammar();
     print_canonical_collection(cc, g);
 
     // 构建SLR(1)分析表
