@@ -11,6 +11,11 @@
 
 using namespace std;
 
+// 调试标志，设置为false关闭所有调试输出
+bool DEBUG_MODE = false;
+
+// 调试输出封装
+#define DEBUG_PRINT(x) if(DEBUG_MODE) { x; }
 
 // 文法产生式
 struct Production {
@@ -116,22 +121,23 @@ void Grammar::compute_follow() {
 }
 
 void Grammar::print_grammar() {
-    cout << "产生式列表：" << endl;
+    cout << "=== 产生式列表 ===" << endl;
     for (size_t i = 0; i < productions.size(); ++i) {
         cout << i << ": " << productions[i].left << " → ";
         for (const auto& sym : productions[i].right) cout << sym << ' ';
         cout << endl;
     }
-    cout << "非终结符：";
-    for (const auto& nt : nonterminals) cout << nt << ' ';
     cout << endl;
-    cout << "终结符：";
-    for (const auto& t : terminals) cout << t << ' ';
+    cout << "=== 非终结符 ===" << endl;
+    for (const auto& nt : nonterminals) cout << nt << endl;
     cout << endl;
-    cout << "起始符号：" << start_symbol;
+    cout << "=== 终结符 ===" << endl;
+    for (const auto& t : terminals) cout << t << endl;
     cout << endl;
+    cout << "=== 起始符号 ===" << endl;
+    cout << start_symbol << endl;
     cout << endl;
-    cout << "FOLLOW集：" << endl;
+    cout << "=== FOLLOW集 ===" << endl;
     for (const auto& nt : nonterminals) {
         cout << "FOLLOW(" << nt << ") = { ";
         for (const auto& f : follow[nt]) cout << f << ' ';
@@ -179,7 +185,6 @@ struct ItemSet {
             if (item.dot_pos == (int)prod.right.size()) cout << ".";
             cout << " [" << item.production_id << "," << item.dot_pos << "]" << endl;
         }
-    
     }
 };
 
@@ -210,32 +215,42 @@ ItemSet closure(const ItemSet& I, const Grammar& g) {
 // Goto函数
 ItemSet Goto(const ItemSet& I, const string& X, const Grammar& g) {
     ItemSet goto_set;
-    cout << "  调试Goto - 对于符号 " << X << ":" << endl;
+    
+    if (DEBUG_MODE) {
+        cout << "  调试Goto - 对于符号 " << X << ":" << endl;
+    }
 
     for (const auto& item : I.items) {
         const auto& prod = g.productions[item.production_id];
-        cout << "    检查项目: " << prod.left << " → ";
-        for (int j = 0; j < (int)prod.right.size(); ++j) {
-            if (j == item.dot_pos) cout << ". ";
-            cout << prod.right[j] << ' ';
+        
+        if (DEBUG_MODE) {
+            cout << "    检查项目: " << prod.left << " → ";
+            for (int j = 0; j < (int)prod.right.size(); ++j) {
+                if (j == item.dot_pos) cout << ". ";
+                cout << prod.right[j] << ' ';
+            }
+            if (item.dot_pos == (int)prod.right.size()) cout << ".";
+            
+            bool condition1 = item.dot_pos < (int)prod.right.size();
+            string right_of_dot = condition1 ? prod.right[item.dot_pos] : "END";
+            bool condition2 = condition1 && right_of_dot == X;
+            
+            cout << " - 点位置: " << item.dot_pos << ", 产生式长度: " << prod.right.size();
+            cout << ", 点后符号: " << (condition1 ? right_of_dot : "无") << ", 匹配: " << (condition2 ? "是" : "否") << endl;
         }
-        if (item.dot_pos == (int)prod.right.size()) cout << ".";
         
-        bool condition1 = item.dot_pos < (int)prod.right.size();
-        string right_of_dot = condition1 ? prod.right[item.dot_pos] : "END";
-        bool condition2 = condition1 && right_of_dot == X;
-        
-        cout << " - 点位置: " << item.dot_pos << ", 产生式长度: " << prod.right.size();
-        cout << ", 点后符号: " << (condition1 ? right_of_dot : "无") << ", 匹配: " << (condition2 ? "是" : "否") << endl;
-       
-        if (condition1 && right_of_dot == X) {
+        bool has_next = item.dot_pos < (int)prod.right.size();
+        if (has_next && prod.right[item.dot_pos] == X) {
             Item moved = {item.production_id, item.dot_pos + 1};
             goto_set.items.insert(moved);
         }
     }
     
     ItemSet result = closure(goto_set, g);
-    cout << "  Goto结果项目集包含 " << result.items.size() << " 个项目" << endl;
+    
+    if (DEBUG_MODE) {
+        cout << "  Goto结果项目集包含 " << result.items.size() << " 个项目" << endl;
+    }
     
     return result;
 }
@@ -258,84 +273,64 @@ CanonicalCollection build_canonical_collection(const Grammar& g) {
     I0 = closure(I0, g);
     C.push_back(I0);
     set_id[I0] = 0;
-
-    I0.print_itemset(g, 0);
+    //I0.print_itemset(g, 0);
 
     q.push(0);
     while (!q.empty()) {
         int idx = q.front(); q.pop();
         ItemSet I = C[idx]; // 使用拷贝而非引用
         
-        cout << "处理状态 I" << idx << ":" << endl;
-        cout << "  状态 I" << idx << " 项目集包含 " << I.items.size() << " 个项目" << endl;
-        
-        // 打印项目集内容
-        for (const auto& item : I.items) {
-            const auto& prod = g.productions[item.production_id];
-            cout << "    项目: " << prod.left << " → ";
-            for (int j = 0; j < (int)prod.right.size(); ++j) {
-                if (j == item.dot_pos) cout << ". ";
-                cout << prod.right[j] << ' ';
-            }
-            if (item.dot_pos == (int)prod.right.size()) cout << ".";
-            cout << endl;
-        }
-        
-        // 对所有符号计算GOTO
-        for (const auto& X : g.nonterminals) {
-            ItemSet gotoI = Goto(I, X, g);
-            if (!gotoI.items.empty()) {
-                // 查找是否已存在相同的项目集
-                int target_id = -1;
-                for (size_t i = 0; i < C.size(); i++) {
-                    if (C[i].items == gotoI.items) {
-                        target_id = i;
-                        break;
-                    }
+        if (DEBUG_MODE) {
+            cout << "处理状态 I" << idx << ":" << endl;
+            cout << "  状态 I" << idx << " 项目集包含 " << I.items.size() << " 个项目" << endl;
+            
+            // 打印项目集内容
+            for (const auto& item : I.items) {
+                const auto& prod = g.productions[item.production_id];
+                cout << "    项目: " << prod.left << " → ";
+                for (int j = 0; j < (int)prod.right.size(); ++j) {
+                    if (j == item.dot_pos) cout << ". ";
+                    cout << prod.right[j] << ' ';
                 }
-                
-                if (target_id == -1) {
-                    // 新项目集
-                    target_id = C.size();
-                    C.push_back(gotoI);
-                    set_id[gotoI] = target_id;
-                    q.push(target_id);
-                    cout << "  添加新状态 I" << target_id << " 来自 GOTO(I" << idx << ", " << X << ")" << endl;
-                } else {
-                    cout << "  已存在状态 I" << target_id << " 来自 GOTO(I" << idx << ", " << X << ")" << endl;
-                }
-                
-                cc.transitions[{idx, X}] = target_id;
+                if (item.dot_pos == (int)prod.right.size()) cout << ".";
+                cout << endl;
             }
         }
-        for (const auto& X : g.terminals) {
-            ItemSet gotoI = Goto(I, X, g);
-            if (!gotoI.items.empty()) {
-                // 查找是否已存在相同的项目集
-                int target_id = -1;
-                for (size_t i = 0; i < C.size(); i++) {
-                    if (C[i].items == gotoI.items) {
-                        target_id = i;
-                        break;
-                    }
-                }
-                
-                if (target_id == -1) {
-                    // 新项目集
-                    target_id = C.size();
-                    C.push_back(gotoI);
-                    set_id[gotoI] = target_id;
-                    q.push(target_id);
-                    cout << "  添加新状态 I" << target_id << " 来自 GOTO(I" << idx << ", " << X << ")" << endl;
-                } else {
-                    cout << "  已存在状态 I" << target_id << " 来自 GOTO(I" << idx << ", " << X << ")" << endl;
-                }
-                
-                cc.transitions[{idx, X}] = target_id;
-            }
-        }
-        
 
+        // 对所有符号计算GOTO
+        vector<string> symbols(g.nonterminals.begin(), g.nonterminals.end());
+        symbols.insert(symbols.end(), g.terminals.begin(), g.terminals.end());
+        for (const auto& X : symbols) {
+            ItemSet gotoI = Goto(I, X, g);
+            if (!gotoI.items.empty()) {
+                // 查找是否已存在相同的项目集
+                int target_id = -1;
+                for (size_t i = 0; i < C.size(); i++) {
+                    if (C[i].items == gotoI.items) {
+                        target_id = i;
+                        break;
+                    }
+                }
+                
+                if (target_id == -1) {
+                    // 新项目集
+                    target_id = C.size();
+                    C.push_back(gotoI);
+                    set_id[gotoI] = target_id;
+                    q.push(target_id);
+                    if (DEBUG_MODE) {
+                        cout << "  添加新状态 I" << target_id << " 来自 GOTO(I" << idx << ", " << X << ")" << endl;
+                    }
+                } else {
+                    if (DEBUG_MODE) {
+                        cout << "  已存在状态 I" << target_id << " 来自 GOTO(I" << idx << ", " << X << ")" << endl;
+                    }
+                }
+                
+                cc.transitions[{idx, X}] = target_id;
+            }
+        }
+        
     }
     cc.C = C;
     return cc;
@@ -379,6 +374,7 @@ void print_canonical_collection(const CanonicalCollection& cc, const Grammar& g)
             cout << endl;
         }
     }
+    
     cout << "\n=== 状态转移 ===" << endl;
     for (const auto& tran : cc.transitions) {
         cout << "I" << tran.first.first << " --" << tran.first.second << "--> I" << tran.second << endl;
@@ -476,16 +472,14 @@ void print_slr_table(const SLRTable& table, const Grammar& g, int state_count) {
     }
 }
 
-Grammar print_grammar(vector<string> rules) {
-    Grammar g;
+int main(int argc, char* argv[]) {
+    for (int i = 1; i < argc; i++) {
+        string arg = argv[i];
+        if (arg == "--debug" || arg == "-d") {
+            DEBUG_MODE = true;
+        }
+    }
 
-
-    return g;
-}
-
-
-int main() {
-    //cout << "LR(0) 项目集规范族" << endl;
     vector<string> rules0 = {
         //"S → E",
         "E → E + T | T",
@@ -510,10 +504,10 @@ int main() {
 
     // 构建LR(0)项目集规范族
     CanonicalCollection cc = build_canonical_collection(g);
-    print_canonical_collection(cc, g);
-
     g.compute_follow();
+
     g.print_grammar();
+    print_canonical_collection(cc, g);
 
     // 构建SLR(1)分析表
     SLRTable slr = build_slr_table(g, cc);
