@@ -620,7 +620,8 @@ SLRTable build_slr_table(const Grammar& g, const CanonicalCollection& cc) {
                 table.GOTO[i][nt] = it->second;
                 
                 if (DEBUG_MODE) {
-                    cout << "  设置 GOTO[" << i << ", " << nt << "] = " << it->second << endl;
+                    cout << "  状态 I" << i << " 通过 " << nt << " 转移到 I" << it->second;
+                    cout << ", 设置 GOTO[" << i << ", " << nt << "] = " << it->second << endl;
                 }
             }
         }
@@ -635,7 +636,10 @@ void print_slr_table(const SLRTable& table, const Grammar& g, int state_count) {
     cout << "\n=== SLR(1)分析表 ===" << endl;
     cout << setw(6) << "State";
     for (const auto& t : terms) cout << setw(8) << t;
-    for (const auto& nt : nterms) cout << setw(8) << nt;
+    for (const auto& nt : nterms) {
+        if (nt == "S'") continue;
+        cout << setw(8) << nt;
+    }
     cout << endl;
     for (int i = 0; i < state_count; ++i) {
         cout << setw(6) << i;
@@ -647,6 +651,7 @@ void print_slr_table(const SLRTable& table, const Grammar& g, int state_count) {
                 cout << setw(8) << "";
         }
         for (const auto& nt : nterms) {
+            if (nt == "S'") continue;
             auto it = table.GOTO.find(i);
             if (it != table.GOTO.end() && it->second.count(nt))
                 cout << setw(8) << it->second.at(nt);
@@ -687,9 +692,26 @@ int main(int argc, char* argv[]) {
         "S → B B",
         "B → a B | b"
     };
+    vector<string> rules4 = {
+        "E → E + E | E * E | ( E ) | i"
+    };   
+    vector<string> rules5 = {
+        "P → 𝒟 𝒮",
+        "𝒟 → ε | 𝒟 D",
+        "D → T d [ i ] | T d ( Â ) { 𝒟 𝒮 }",
+        "T → int | float | void",
+        "Â → ε | Â A",
+        "A → T d | T d [ ] | T d ( T )",
+        "𝒮 → S | 𝒮 S",
+        "S → d = E | d [ E ] = E | if ( B ) S | if ( B ) S else S | while ( B ) S | return E | { 𝒮 } | d ( 𝑅 ) | ;",
+        "E → i | f | d | d [ E ] | E + E | E * E | ( E ) | d ( 𝑅 )",
+        "B → E r E | E",
+        "𝑅 → ε | 𝑅 R",
+        "R → E | d [ ]"
+    };
     
     Grammar g;
-    g.parse(rules0);
+    g.parse(rules5);
     
     // 首先计算FIRST集
     g.compute_first();
