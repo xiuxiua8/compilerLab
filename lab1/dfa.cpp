@@ -28,6 +28,7 @@ public:
     string getStateType(const string& state) const;
     string classifyToken(const string& type, const string& token) const;
     void initKeywords();
+    vector<string> tokenizeInput(const string &input);
 
 private:
     void generateAllStrings(const string& current, int maxLength, vector<string>& results);
@@ -234,6 +235,82 @@ string DFA::classifyToken(const string& type, const string& token) const {
     return result;
 }
 
+vector<string> DFA::tokenizeInput(const string& input) {
+    vector<string> tokens;
+    string currentToken;
+    
+    for (size_t i = 0; i < input.length(); i++) {
+        char c = input[i];
+        
+        // 处理空白字符
+        if (isspace(c)) {
+            if (!currentToken.empty()) {
+                tokens.push_back(currentToken);
+                currentToken.clear();
+            }
+            continue;
+        }
+        
+        // 处理分隔符: 分号、逗号、括号等
+        if (c == ';' || c == ',' || c == '(' || c == ')' || 
+            c == '{' || c == '}' || c == '[' || c == ']') {
+            
+            // 先保存之前的token
+            if (!currentToken.empty()) {
+                tokens.push_back(currentToken);
+                currentToken.clear();
+            }
+            
+            // 将分隔符作为独立token
+            tokens.push_back(string(1, c));
+            continue;
+        }
+        
+        // 处理运算符
+        if (c == '+' || c == '-' || c == '*' || c == '/' || c == '=' || 
+            c == '<' || c == '>' || c == '!') {
+            
+            // 检查是否为双字符运算符 (==, !=, <=, >=)
+            if (i + 1 < input.length() && 
+                ((c == '=' && input[i+1] == '=') || 
+                 (c == '!' && input[i+1] == '=') || 
+                 (c == '<' && input[i+1] == '=') || 
+                 (c == '>' && input[i+1] == '='))) {
+                
+                // 先保存之前的token
+                if (!currentToken.empty()) {
+                    tokens.push_back(currentToken);
+                    currentToken.clear();
+                }
+                
+                // 保存双字符运算符
+                tokens.push_back(string(1, c) + input[i+1]);
+                i++; // 跳过下一个字符
+            } else {
+                // 先保存之前的token
+                if (!currentToken.empty()) {
+                    tokens.push_back(currentToken);
+                    currentToken.clear();
+                }
+                
+                // 保存单字符运算符
+                tokens.push_back(string(1, c));
+            }
+            continue;
+        }
+        
+        // 其他字符追加到当前token
+        currentToken += c;
+    }
+    
+    // 不要忘记最后一个token
+    if (!currentToken.empty()) {
+        tokens.push_back(currentToken);
+    }
+    
+    return tokens;
+}
+
 int main() {
     DFA dfa;
     // 初始化关键字表
@@ -286,11 +363,10 @@ int main() {
         cin.ignore(); // 清除输入缓冲区
         getline(cin, line);
         
-        istringstream iss(line);
-        string token;
+        vector<string> tokens = dfa.tokenizeInput(line);
         vector<pair<string, string>> results; // 存储类型和原字符串对
         
-        while (iss >> token) {
+        for (const auto& token : tokens) {
             string endState = dfa.getEndState(token);
             if (endState != "ERROR" && dfa.getAcceptStates().count(endState) > 0) {
                 string type = dfa.getStateType(endState);
