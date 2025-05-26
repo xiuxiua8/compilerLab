@@ -326,7 +326,7 @@ int main() {
     }
 
     int mode;
-    cout << "请选择运行模式 (1: 批量分析符号串, 2: 词法分析): ";
+    cout << "请选择运行模式 (1: 批量分析符号串, 2: 词法分析, 3: 分析C/C++文件): ";
     cin >> mode;
 
     if (mode == 1) {
@@ -384,9 +384,77 @@ int main() {
             cout << endl;
         }
         cout << endl;
+    } else if (mode == 3) {
+        string filename;
+        cout << "请输入要分析的文件名: ";
+        cin.ignore(); // 清除输入缓冲区
+        getline(cin, filename);
+        
+        // 读取文件内容
+        ifstream file(filename);
+        if (!file) {
+            cout << "无法打开文件: " << filename << endl;
+            return 1;
+        }
+        
+        string line;
+        int lineNumber = 1;
+        vector<pair<string, string>> allResults; // 存储所有行的分析结果
+        
+        cout << "开始分析文件: " << filename << endl;
+        
+        // 逐行读取并分析文件
+        while (getline(file, line)) {
+            vector<string> tokens = dfa.tokenizeInput(line);
+            vector<pair<string, string>> results; // 当前行的结果
+            
+            for (const auto& token : tokens) {
+                string endState = dfa.getEndState(token);
+                if (endState != "ERROR" && dfa.getAcceptStates().count(endState) > 0) {
+                    string type = dfa.getStateType(endState);
+                    type = dfa.classifyToken(type, token);
+                    results.push_back({type, token});
+                } else {
+                    results.push_back({"ERROR", token});
+                }
+            }
+            
+            // 输出当前行的分析结果
+            if (!results.empty()) {
+                cout << "第 " << lineNumber << " 行: ";
+                for (const auto& result : results) {
+                    cout << " (" << result.first << ", " << result.second << ") ";
+                }
+                cout << endl;
+                
+                // 将当前行结果添加到总结果
+                allResults.insert(allResults.end(), results.begin(), results.end());
+            }
+            
+            lineNumber++;
+        }
+        
+        // 输出统计信息
+        cout << "\n==== 词法分析结果统计 ====\n";
+        cout << "总共分析了 " << lineNumber - 1 << " 行代码\n";
+        cout << "识别到 " << allResults.size() << " 个词法单元\n";
+        
+        // 可选：统计各类型token的数量
+        map<string, int> typeCount;
+        for (const auto& result : allResults) {
+            typeCount[result.first]++;
+        }
+        
+        cout << "\n各类型词法单元统计:\n";
+        for (const auto& item : typeCount) {
+            cout << item.first << ": " << item.second << " 个\n";
+        }
+        
+        file.close();
     } else {
-        cout << "无效的运行模式，请选择1或2。\n";
+        cout << "无效的运行模式，请选择1、2或3。\n";
     }
 
     return 0;
 }
+
