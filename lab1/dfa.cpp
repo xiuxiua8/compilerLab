@@ -216,6 +216,7 @@ void DFA::initKeywords() {
     keywords.insert("union");
     keywords.insert("const");
     // 可以根据需要添加更多关键字
+    //IF ELSE WHILE RETURN INT FLOAT VOID
 }
 
 // 分类词法单元：普通标识符还是关键字
@@ -458,7 +459,7 @@ int main0() {
     return 0;
 }
 
-int main(int argc, char* argv[]) {
+int test2(int argc, char* argv[]) {
     DFA dfa;
     // 初始化关键字表
     dfa.initKeywords();
@@ -540,4 +541,5 @@ int main(int argc, char* argv[]) {
     */
     
     file.close();
+    return 0;
 }

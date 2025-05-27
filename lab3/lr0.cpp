@@ -519,11 +519,41 @@ void print_canonical_collection(const CanonicalCollection& cc, const Grammar& g)
         cout << "I" << tran.first.first << " --" << tran.first.second << "--> I" << tran.second << endl;
     }
 }
+// ===== SLR分析表结构 =====
+struct SLRAction {
+    char type;  // 's' for shift, 'r' for reduce, 'a' for accept
+    int value;  // state number for shift, production number for reduce
+
+    bool operator==(const SLRAction& other) const {
+        return type == other.type && value == other.value;
+    }
+
+    bool operator!=(const SLRAction& other) const {
+        return !(*this == other);
+    }
+
+    bool empty() const {
+        return type == '\0';
+    }
+};
+
+// 输出运算符重载
+ostream& operator<<(ostream& os, const SLRAction& action) {
+    if (action.empty()) {
+        os << "";
+    } else {
+        os << action.type;
+        if (action.type != 'a') {  // 接受动作不需要显示值
+            os << action.value;
+        }
+    }
+    return os;
+}
 
 // SLR(1)分析表
 struct SLRTable {
     // ACTION[state][terminal] = "sX"(移进), "rY"(归约), "acc"(接受), ""(空)
-    map<int, map<string, string>> ACTION;
+    map<int, map<string, SLRAction>> ACTION;
     // GOTO[state][nonterminal] = 状态编号
     map<int, map<string, int>> GOTO;
     // 冲突信息
@@ -551,35 +581,34 @@ SLRTable build_slr_table(const Grammar& g, const CanonicalCollection& cc) {
             if (item.dot_pos == (int)prod.right.size()) {
                 if (prod.left == g.start_symbol) {
                     // S' → S. 接受
-                    table.ACTION[i]["#"] = "acc";
+                    table.ACTION[i]["#"] = {'a', 0};  // 接受动作，value设为0
                     
                     if (DEBUG_MODE) {
-                        cout << "  设置 ACTION[" << i << ", #] = acc" << endl;
+                        cout << "  设置 ACTION[" << i << ", #] = a" << endl;
                     }
                 } else {
                     // 对FOLLOW(left)内的终结符填rX
                     for (const auto& a : g.follow.at(prod.left)) {
-                        string& cell = table.ACTION[i][a];
-                        string act = "r" + to_string(item.production_id);
+                        SLRAction& cell = table.ACTION[i][a];
+                        SLRAction act = {'r', item.production_id};
                         
                         if (DEBUG_MODE) {
                             cout << "  " << prod.left << " 的FOLLOW集包含 " << a;
-                            cout << "，设置 ACTION[" << i << ", " << a << "] = " << act;
+                            cout << "，设置 ACTION[" << i << ", " << a << "] = " << act << endl;
                         }
                         
                         if (!cell.empty() && cell != act) {
-                            table.conflicts.push_back("归约冲突: 状态" + to_string(i) + ", 符号" + a + ", " + cell + " vs " + act);
+                            string conflict = "归约冲突: 状态" + to_string(i) + ", 符号" + a + 
+                                           ", " + string(1, cell.type) + to_string(cell.value) + 
+                                           " vs " + string(1, act.type) + to_string(act.value);
+                            table.conflicts.push_back(conflict);
                             
                             if (DEBUG_MODE) {
-                                cout << " (冲突，已存在 " << cell << ")";
+                                cout << " (冲突，已存在 " << cell << ")" << endl;
                             }
                         }
                         
                         cell = act;
-                        
-                        if (DEBUG_MODE) {
-                            cout << endl;
-                        }
                     }
                 }
             }
@@ -589,27 +618,26 @@ SLRTable build_slr_table(const Grammar& g, const CanonicalCollection& cc) {
         for (const auto& t : g.terminals) {
             auto it = cc.transitions.find({(int)i, t});
             if (it != cc.transitions.end()) {
-                string& cell = table.ACTION[i][t];
-                string act = "s" + to_string(it->second);
+                SLRAction& cell = table.ACTION[i][t];
+                SLRAction act = {'s', it->second};
                 
                 if (DEBUG_MODE) {
                     cout << "  状态 I" << i << " 通过 " << t << " 转移到 I" << it->second;
-                    cout << "，设置 ACTION[" << i << ", " << t << "] = " << act;
+                    cout << "，设置 ACTION[" << i << ", " << t << "] = " << act << endl;
                 }
                 
                 if (!cell.empty() && cell != act) {
-                    table.conflicts.push_back("移进冲突: 状态" + to_string(i) + ", 符号" + t + ", " + cell + " vs " + act);
+                    string conflict = "移进冲突: 状态" + to_string(i) + ", 符号" + t + 
+                                    ", " + string(1, cell.type) + to_string(cell.value) + 
+                                    " vs " + string(1, act.type) + to_string(act.value);
+                    table.conflicts.push_back(conflict);
                     
                     if (DEBUG_MODE) {
-                        cout << " (冲突，已存在 " << cell << ")";
+                        cout << " (冲突，已存在 " << cell << ")" << endl;
                     }
                 }
                 
                 cell = act;
-                
-                if (DEBUG_MODE) {
-                    cout << endl;
-                }
             }
         }
         
@@ -666,7 +694,7 @@ void print_slr_table(const SLRTable& table, const Grammar& g, int state_count) {
     }
 }
 
-int main(int argc, char* argv[]) {
+int test(int argc, char* argv[]) {
     for (int i = 1; i < argc; i++) {
         string arg = argv[i];
         if (arg == "--debug" || arg == "-d") {
@@ -760,7 +788,7 @@ int main(int argc, char* argv[]) {
     };
     
     Grammar g;
-    g.parse(rules7);
+    g.parse(rules0);
     
     // 首先计算FIRST集
     g.compute_first();

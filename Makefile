@@ -5,7 +5,7 @@ CXXFLAGS = -std=c++14 -Wall -g
 LDFLAGS =
 
 # Target files
-TARGETS = semantic_analyzer compiler_driver intermediate_code_generator lab3/lr0 lab1/dfa
+TARGETS = semantic_analyzer compiler_driver intermediate_code_generator 
 
 # Default target
 all: $(TARGETS)
@@ -22,13 +22,6 @@ compiler_driver: compiler_driver.cpp
 intermediate_code_generator: intermediate_code_generator.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
 
-# LR(0) Syntax Analyzer (Experiment Four)
-lab3/lr0: lab3/lr0.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
-
-# Lexical Analyzer (Experiment Two)
-lab1/dfa: lab1/dfa.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
 
 # Generate SLR table for Experiment Four
 lab3/slr_output.txt: lab3/lr0

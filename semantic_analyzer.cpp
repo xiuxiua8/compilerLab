@@ -8,14 +8,14 @@
 #include <iomanip>
 #include <algorithm>
 #include <fstream>  // 添加文件操作支持
-#include "lab1/dfa.cpp"
 #include "lab3/lr0.cpp"
+#include "lexer.cpp"
 
 using namespace std;
 
 // 调试标志
-bool DEBUG_MODE = false;
-#define DEBUG_PRINT(x) if(DEBUG_MODE) { x; }
+//bool DEBUG_MODE = false;
+//#define DEBUG_PRINT(x) if(DEBUG_MODE) { x; }
 
 
 // 树状图打印辅助函数
@@ -1444,23 +1444,25 @@ public:
         g.compute_follow();
         //g.print_grammar();
         CanonicalCollection cc = build_canonical_collection(g);
-        print_canonical_collection(cc, g);
+        //print_canonical_collection(cc, g);
 
-        SLRTable slr = build_slr_table(g, cc);
-        //print_slr_table(slr, g, cc.C.size());
+        table = build_slr_table(g, cc);
+        print_slr_table(table, g, cc.C.size());
 
     }
     
-    shared_ptr<ASTNode> parse(const string& input) {
-        Lexer lexer(input);
+    shared_ptr<ASTNode> parse(const string& filename) {
+        Lexer lexer(filename);
         vector<Token> tokens;
-        
+        cout << "start parse" << endl;
         // 词法分析
         Token token;
         do {
             token = lexer.getNextToken();
             tokens.push_back(token);
-        } while (token.type != TokenType::EOF_TOKEN);
+            cout << "token: " << token.value << endl;
+        //} while (token.type != TokenType::EOF_TOKEN);
+        } while (lexer.getPos() < lexer.getTokensSize());
         
         // 语法分析
         stateStack.clear();
@@ -1472,7 +1474,7 @@ public:
         while (tokenIndex < tokens.size()) {
             int state = stateStack.back();
             Token currentToken = tokens[tokenIndex];
-            string symbol = currentToken.value;
+            string symbol = tokenTypeToString(currentToken.type);
             
             // 查找ACTION表
             if (table.ACTION[state].count(symbol) == 0) {
@@ -1480,7 +1482,12 @@ public:
                 return nullptr;
             }
             
-            action = table.ACTION[state][symbol];
+            SLRAction action = table.ACTION[state][symbol];
+
+            if (DEBUG_MODE) {
+                cout << "state: " << state << " symbol: " << symbol << " action: " << action.type << " " << action.value << endl;
+            }
+            
             
             if (action.type == 's') {
                 // 移进
@@ -1513,7 +1520,6 @@ public:
                 return nullptr;
             }
         }
-        
         return nullptr;
     }
     
@@ -1533,25 +1539,774 @@ private:
     }
     
     shared_ptr<ASTNode> reduce(int prodNum) {
-        // 根据产生式编号执行归约操作
-        // 这里需要根据具体的产生式创建相应的AST节点
-        // TODO: 实现具体的归约逻辑
+        // 弹出对应数量的节点
+        vector<shared_ptr<ASTNode>> children;
+        int popCount = 0;
         
+        switch(prodNum) {
+            case 0: { // S' -> Prog
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0]; // 直接返回程序节点
+            }
+            
+            case 1: { // Prog -> DeclList
+                popCount = 1;
+        for (int i = 0; i < popCount; i++) {
+            children.push_back(nodeStack.back());
+            nodeStack.pop_back();
+        }
+        reverse(children.begin(), children.end());
+                return children[0]; // DeclList就是程序节点
+            }
+            
+            case 2: { // DeclList -> DeclList Decl
+                popCount = 2;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto program = static_pointer_cast<ProgramNode>(children[0]);
+                auto decl = children[1];
+                
+                // 根据声明类型添加到程序节点
+                if (decl->type == NodeType::VARIABLE_DECL) {
+                    program->addGlobalVariable(static_pointer_cast<VariableDeclNode>(decl));
+                } else if (decl->type == NodeType::FUNCTION_DEF) {
+                    program->addFunction(static_pointer_cast<FunctionDefNode>(decl));
+                }
+                
+                return program;
+            }
+            
+            case 3: { // DeclList -> Decl
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto program = make_shared<ProgramNode>();
+                auto decl = children[0];
+                
+                if (decl->type == NodeType::VARIABLE_DECL) {
+                    program->addGlobalVariable(static_pointer_cast<VariableDeclNode>(decl));
+                } else if (decl->type == NodeType::FUNCTION_DEF) {
+                    program->addFunction(static_pointer_cast<FunctionDefNode>(decl));
+                }
+                
+                return program;
+            }
+            
+            case 4: { // Decl -> VarDecl
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 5: { // Decl -> FunDecl
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 6: { // VarDecl -> Type ID SEMI
+                popCount = 3;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                // children[0] = Type, children[1] = ID, children[2] = SEMI
+                DataType varType = getDataTypeFromNode(children[0]);
+                string varName = getIdentifierName(children[1]);
+                
+                return make_shared<VariableDeclNode>(varType, varName);
+            }
+            
+            case 7: { // VarDecl -> Type ID LBRACK INT_NUM RBRACK SEMI
+                popCount = 6;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                // children[0] = Type, children[1] = ID, children[2] = LBRACK, 
+                // children[3] = INT_NUM, children[4] = RBRACK, children[5] = SEMI
+                DataType baseType = getDataTypeFromNode(children[0]);
+                string varName = getIdentifierName(children[1]);
+                int arraySize = stoi(getLiteralValue(children[3]));
+                
+                DataType arrayType = (baseType == DataType::INT) ? DataType::ARRAY_INT : DataType::ARRAY_FLOAT;
+                auto varDecl = make_shared<VariableDeclNode>(arrayType, varName);
+                varDecl->isArray = true;
+                varDecl->arraySize = arraySize;
+                
+                return varDecl;
+            }
+            
+            case 8: { // VarDecl -> Type ID ASG Expr SEMI
+                popCount = 5;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                // children[0] = Type, children[1] = ID, children[2] = ASG, 
+                // children[3] = Expr, children[4] = SEMI
+                DataType varType = getDataTypeFromNode(children[0]);
+                string varName = getIdentifierName(children[1]);
+                auto initExpr = static_pointer_cast<ExpressionNode>(children[3]);
+                
+                return make_shared<VariableDeclNode>(varType, varName, initExpr);
+            }
+            
+            case 9: { // Type -> INT
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                // 创建一个表示类型的节点（可以用LiteralNode表示）
+                return make_shared<LiteralNode>("int", DataType::INT);
+            }
+            
+            case 10: { // Type -> FLOAT
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                return make_shared<LiteralNode>("float", DataType::FLOAT);
+            }
+            
+            case 11: { // Type -> VOID
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                return make_shared<LiteralNode>("void", DataType::VOID);
+            }
+            
+            case 12: { // FunDecl -> Type ID LPAR ParamList RPAR CompStmt
+                popCount = 6;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                // children[0] = Type, children[1] = ID, children[2] = LPAR,
+                // children[3] = ParamList, children[4] = RPAR, children[5] = CompStmt
+                DataType returnType = getDataTypeFromNode(children[0]);
+                string funcName = getIdentifierName(children[1]);
+                auto paramList = getParameterList(children[3]);
+                auto body = static_pointer_cast<CompoundStmtNode>(children[5]);
+                
+                auto funcDef = make_shared<FunctionDefNode>(returnType, funcName);
+                for (auto param : paramList) {
+                    funcDef->addParameter(param);
+                }
+                funcDef->body = body;
+                
+                return funcDef;
+            }
+            
+            case 13: { // ParamList -> ParamList COMMA Param
+                popCount = 3;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                // 创建参数列表节点（使用CompoundStmtNode临时表示）
+                auto paramList = make_shared<CompoundStmtNode>();
+                auto existingParams = getParameterList(children[0]);
+                auto newParam = static_pointer_cast<VariableDeclNode>(children[2]);
+                
+                for (auto param : existingParams) {
+                    paramList->addStatement(param);
+                }
+                paramList->addStatement(newParam);
+                
+                return paramList;
+            }
+            
+            case 14: { // ParamList -> Param
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto paramList = make_shared<CompoundStmtNode>();
+                paramList->addStatement(static_pointer_cast<StatementNode>(children[0]));
+                
+                return paramList;
+            }
+            
+            case 15: { // ParamList -> ε
+                popCount = 0;
+                // 空参数列表
+                return make_shared<CompoundStmtNode>();
+            }
+            
+            case 16: { // Param -> Type ID
+                popCount = 2;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                DataType paramType = getDataTypeFromNode(children[0]);
+                string paramName = getIdentifierName(children[1]);
+                
+                return make_shared<VariableDeclNode>(paramType, paramName);
+            }
+            
+            case 17: { // Param -> Type ID LBRACK RBRACK
+                popCount = 4;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                DataType baseType = getDataTypeFromNode(children[0]);
+                string paramName = getIdentifierName(children[1]);
+                DataType arrayType = (baseType == DataType::INT) ? DataType::ARRAY_INT : DataType::ARRAY_FLOAT;
+                
+                auto param = make_shared<VariableDeclNode>(arrayType, paramName);
+                param->isArray = true;
+                
+                return param;
+            }
+            
+            case 18: { // CompStmt -> LBR StmtList RBR
+                popCount = 3;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                // children[1] 是 StmtList
+                return children[1];
+            }
+            
+            case 19: { // StmtList -> StmtList Stmt
+                popCount = 2;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto stmtList = static_pointer_cast<CompoundStmtNode>(children[0]);
+                auto stmt = static_pointer_cast<StatementNode>(children[1]);
+                stmtList->addStatement(stmt);
+                
+                return stmtList;
+            }
+            
+            case 20: { // StmtList -> ε
+                popCount = 0;
+                return make_shared<CompoundStmtNode>();
+            }
+            
+            case 21: { // Stmt -> VarDecl
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 22: { // Stmt -> OtherStmt
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 23: { // OtherStmt -> ExprStmt
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 24: { // OtherStmt -> CompStmt
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 25: { // OtherStmt -> IfStmt
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 26: { // OtherStmt -> LoopStmt
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 27: { // OtherStmt -> RetStmt
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 28: { // ExprStmt -> Expr SEMI
+                popCount = 2;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                // 创建表达式语句节点（可以用现有的节点类型表示）
+                return children[0]; // 直接返回表达式
+            }
+            
+            case 29: { // ExprStmt -> SEMI
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                // 空语句，返回空节点
         return nullptr;
+            }
+            
+            case 30: { // IfStmt -> IF LPAR Expr RPAR CompStmt
+                popCount = 5;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto condition = static_pointer_cast<ExpressionNode>(children[2]);
+                auto thenStmt = static_pointer_cast<StatementNode>(children[4]);
+                
+                return make_shared<IfStmtNode>(condition, thenStmt);
+            }
+            
+            case 31: { // IfStmt -> IF LPAR Expr RPAR CompStmt ELSE CompStmt
+                popCount = 7;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto condition = static_pointer_cast<ExpressionNode>(children[2]);
+                auto thenStmt = static_pointer_cast<StatementNode>(children[4]);
+                auto elseStmt = static_pointer_cast<StatementNode>(children[6]);
+                
+                return make_shared<IfStmtNode>(condition, thenStmt, elseStmt);
+            }
+            
+            case 32: { // LoopStmt -> WHILE LPAR Expr RPAR Stmt
+                popCount = 5;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto condition = static_pointer_cast<ExpressionNode>(children[2]);
+                auto body = static_pointer_cast<StatementNode>(children[4]);
+                
+                return make_shared<WhileStmtNode>(condition, body);
+            }
+            
+            case 33: { // RetStmt -> RETURN Expr SEMI
+                popCount = 3;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto returnExpr = static_pointer_cast<ExpressionNode>(children[1]);
+                // 创建返回语句节点（可以用AssignmentNode临时表示）
+                auto returnStmt = make_shared<AssignmentNode>(nullptr, returnExpr);
+                returnStmt->type = NodeType::RETURN_STMT;
+                
+                return returnStmt;
+            }
+            
+            case 34: { // RetStmt -> RETURN SEMI
+                popCount = 2;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                
+                auto returnStmt = make_shared<AssignmentNode>(nullptr, nullptr);
+                returnStmt->type = NodeType::RETURN_STMT;
+                
+                return returnStmt;
+            }
+            
+            case 35: { // Expr -> ID ASG Expr
+                popCount = 3;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto target = static_pointer_cast<ExpressionNode>(children[0]);
+                auto value = static_pointer_cast<ExpressionNode>(children[2]);
+                
+                return make_shared<AssignmentNode>(target, value);
+            }
+            
+            case 36: { // Expr -> ID LBRACK Expr RBRACK ASG Expr
+                popCount = 6;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto arrayId = static_pointer_cast<IdentifierNode>(children[0]);
+                auto index = static_pointer_cast<ExpressionNode>(children[2]);
+                auto value = static_pointer_cast<ExpressionNode>(children[5]);
+                
+                // 创建数组访问节点作为赋值目标
+                auto arrayAccess = make_shared<BinaryOpNode>("[]", arrayId, index);
+                arrayAccess->type = NodeType::ARRAY_ACCESS;
+                
+                return make_shared<AssignmentNode>(arrayAccess, value);
+            }
+            
+            case 37: { // Expr -> ID LPAR ArgList RPAR
+                popCount = 4;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                string funcName = getIdentifierName(children[0]);
+                auto argList = getArgumentList(children[2]);
+                
+                auto funcCall = make_shared<FunctionCallNode>(funcName);
+                for (auto arg : argList) {
+                    funcCall->addArgument(arg);
+                }
+                
+                return funcCall;
+            }
+            
+            case 38: { // Expr -> SimpExpr
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 39: { // SimpExpr -> AddExpr REL_OP AddExpr
+                popCount = 3;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto left = static_pointer_cast<ExpressionNode>(children[0]);
+                string op = getOperatorValue(children[1]);
+                auto right = static_pointer_cast<ExpressionNode>(children[2]);
+                
+                return make_shared<BinaryOpNode>(op, left, right);
+            }
+            
+            case 40: { // SimpExpr -> AddExpr
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 41: { // AddExpr -> AddExpr ADD Term
+                popCount = 3;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto left = static_pointer_cast<ExpressionNode>(children[0]);
+                auto right = static_pointer_cast<ExpressionNode>(children[2]);
+                
+                return make_shared<BinaryOpNode>("+", left, right);
+            }
+            
+            case 42: { // AddExpr -> Term
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 43: { // Term -> Term MUL Fact
+                popCount = 3;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto left = static_pointer_cast<ExpressionNode>(children[0]);
+                auto right = static_pointer_cast<ExpressionNode>(children[2]);
+                
+                return make_shared<BinaryOpNode>("*", left, right);
+            }
+            
+            case 44: { // Term -> Fact
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 45: { // Fact -> ID
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 46: { // Fact -> ID LBRACK Expr RBRACK
+                popCount = 4;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto arrayId = static_pointer_cast<ExpressionNode>(children[0]);
+                auto index = static_pointer_cast<ExpressionNode>(children[2]);
+                
+                auto arrayAccess = make_shared<BinaryOpNode>("[]", arrayId, index);
+                arrayAccess->type = NodeType::ARRAY_ACCESS;
+                
+                return arrayAccess;
+            }
+            
+            case 47: { // Fact -> INT_NUM
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 48: { // Fact -> FLOAT_NUM
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                return children[0];
+            }
+            
+            case 49: { // Fact -> LPAR Expr RPAR
+                popCount = 3;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                return children[1]; // 返回括号中的表达式
+            }
+            
+            case 50: { // ArgList -> ArgList COMMA Expr
+                popCount = 3;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto argList = make_shared<CompoundStmtNode>();
+                auto existingArgs = getArgumentList(children[0]);
+                auto newArg = static_pointer_cast<ExpressionNode>(children[2]);
+                
+                for (auto arg : existingArgs) {
+                    argList->addStatement(make_shared<AssignmentNode>(nullptr, arg));
+                }
+                argList->addStatement(make_shared<AssignmentNode>(nullptr, newArg));
+                
+                return argList;
+            }
+            
+            case 51: { // ArgList -> Expr
+                popCount = 1;
+                for (int i = 0; i < popCount; i++) {
+                    children.push_back(nodeStack.back());
+                    nodeStack.pop_back();
+                }
+                reverse(children.begin(), children.end());
+                
+                auto argList = make_shared<CompoundStmtNode>();
+                auto expr = static_pointer_cast<ExpressionNode>(children[0]);
+                argList->addStatement(make_shared<AssignmentNode>(nullptr, expr));
+                
+                return argList;
+            }
+            
+            case 52: { // ArgList -> ε
+                popCount = 0;
+                return make_shared<CompoundStmtNode>();
+            }
+            
+            default:
+                cerr << "未知的产生式编号: " << prodNum << endl;
+                return nullptr;
+        }
     }
     
     string getProductionLeft(int prodNum) {
-        if (prodNum < 0 || prodNum >= table.productions.size()) {
+        if (prodNum < 0 || prodNum >= productions.size()) {
             return "";
         }
         
-        string prod = table.productions[prodNum];
+        string prod = productions[prodNum];
         size_t pos = prod.find(" -> ");
         if (pos != string::npos) {
             return prod.substr(0, pos);
         }
         
         return "";
+    }
+    
+    // 辅助函数实现
+    DataType getDataTypeFromNode(shared_ptr<ASTNode> node) {
+        if (auto literal = static_pointer_cast<LiteralNode>(node)) {
+            return literal->dataType;
+        }
+        return DataType::UNKNOWN;
+    }
+    
+    string getIdentifierName(shared_ptr<ASTNode> node) {
+        if (auto id = static_pointer_cast<IdentifierNode>(node)) {
+            return id->name;
+        }
+        return "";
+    }
+    
+    string getLiteralValue(shared_ptr<ASTNode> node) {
+        if (auto literal = static_pointer_cast<LiteralNode>(node)) {
+            return literal->value;
+        }
+        return "";
+    }
+    
+    string getOperatorValue(shared_ptr<ASTNode> node) {
+        // 假设操作符也用LiteralNode表示
+        if (auto literal = static_pointer_cast<LiteralNode>(node)) {
+            return literal->value;
+        }
+        return "";
+    }
+    
+    vector<shared_ptr<VariableDeclNode>> getParameterList(shared_ptr<ASTNode> node) {
+        vector<shared_ptr<VariableDeclNode>> params;
+        if (auto compound = static_pointer_cast<CompoundStmtNode>(node)) {
+            for (auto stmt : compound->statements) {
+                if (auto param = static_pointer_cast<VariableDeclNode>(stmt)) {
+                    params.push_back(param);
+                }
+            }
+        }
+        return params;
+    }
+    
+    vector<shared_ptr<ExpressionNode>> getArgumentList(shared_ptr<ASTNode> node) {
+        vector<shared_ptr<ExpressionNode>> args;
+        if (auto compound = static_pointer_cast<CompoundStmtNode>(node)) {
+            for (auto stmt : compound->statements) {
+                if (auto assign = static_pointer_cast<AssignmentNode>(stmt)) {
+                    if (assign->value) {
+                        args.push_back(assign->value);
+                    }
+                }
+            }
+        }
+        return args;
     }
 };
 
@@ -1801,44 +2556,10 @@ int main(int argc, char* argv[]) {
             DEBUG_MODE = true;
         }
     }
-
-    vector<string> rules = {
-        "Prog -> DeclList",
-        "DeclList -> DeclList Decl | Decl",
-        "Decl -> VarDecl | FunDecl",
-        "VarDecl -> Type ID SEMI | Type ID LBRACK INT_NUM RBRACK SEMI | Type ID ASG Expr SEMI",
-        "Type -> INT | FLOAT | VOID",
-        "FunDecl -> Type ID LPAR ParamList RPAR CompStmt",
-        "ParamList -> ParamList COMMA Param | Param | ε",
-        "Param -> Type ID | Type ID LBRACK RBRACK",
-        "CompStmt -> LBR StmtList RBR",
-        "StmtList -> StmtList Stmt | ε",
-        "Stmt -> VarDecl | OtherStmt",
-        "OtherStmt -> ExprStmt | CompStmt | IfStmt | LoopStmt | RetStmt",
-        "ExprStmt -> Expr SEMI | SEMI",
-        "IfStmt -> IF LPAR Expr RPAR CompStmt | IF LPAR Expr RPAR CompStmt ELSE CompStmt",
-        "LoopStmt -> WHILE LPAR Expr RPAR Stmt",
-        "RetStmt -> RETURN Expr SEMI | RETURN SEMI",
-        "Expr -> ID ASG Expr | ID LBRACK Expr RBRACK ASG Expr | ID LPAR ArgList RPAR | SimpExpr",
-        "SimpExpr -> AddExpr REL_OP AddExpr | AddExpr",
-        "AddExpr -> AddExpr ADD Term | Term",
-        "Term -> Term MUL Fact | Fact",
-        "Fact -> ID | ID LBRACK Expr RBRACK | INT_NUM | FLOAT_NUM | LPAR Expr RPAR",
-        "ArgList -> ArgList COMMA Expr | Expr | ε"
-    };
-
-    Grammar g;
-    g.parse(rules);
-    g.compute_first();
-    g.compute_follow();
-    //g.print_grammar();
-    CanonicalCollection cc = build_canonical_collection(g);
-    print_canonical_collection(cc, g);
-
-    SLRTable slr = build_slr_table(g, cc);
-    //print_slr_table(slr, g, cc.C.size());
+    
+    SLRParser slrparser;
+    slrparser.loadSLRTable();
+    slrparser.parse(argv[1]);
 
     return 0;
-
-
 }
