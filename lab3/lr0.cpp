@@ -709,9 +709,58 @@ int main(int argc, char* argv[]) {
         "𝑅 → ε | 𝑅 R",
         "R → E | d [ ]"
     };
+    vector<string> rules6 = {
+        "Prog -> DeclList",
+        "DeclList -> DeclList Decl | Decl",
+        "Decl -> VarDecl | FunDecl",
+        "VarDecl -> Type ID SEMI | Type ID LBRACK INT_NUM RBRACK SEMI | Type ID ASG Expr SEMI",
+        "Type -> INT | FLOAT | VOID",
+        "FunDecl -> Type ID LPAR ParamList RPAR CompStmt",
+        "ParamList -> ParamList COMMA Param | Param | ε",
+        "Param -> Type ID | Type ID LBRACK RBRACK",
+        "CompStmt -> LBR StmtList RBR",
+        "StmtList -> StmtList Stmt | ε",
+        "Stmt -> VarDecl | OtherStmt",
+        "OtherStmt -> ExprStmt | CompStmt | IfStmt | LoopStmt | RetStmt | PrintStmt",
+        "PrintStmt -> PRINT LPAR Expr RPAR SEMI",
+        "ExprStmt -> Expr SEMI | SEMI",
+        "IfStmt -> IF LPAR Expr RPAR CompStmt | IF LPAR Expr RPAR CompStmt ELSE CompStmt",
+        "LoopStmt -> WHILE LPAR Expr RPAR Stmt",
+        "RetStmt -> RETURN Expr SEMI | RETURN SEMI",
+        "Expr -> ID ASG Expr | ID LBRACK Expr RBRACK ASG Expr | ID LPAR ArgList RPAR | SimpExpr",
+        "SimpExpr -> AddExpr REL_OP AddExpr | AddExpr",
+        "AddExpr -> AddExpr ADD Term | Term",
+        "Term -> Term MUL Fact | Fact",
+        "Fact -> ID | ID LBRACK Expr RBRACK | INT_NUM | FLOAT_NUM | LPAR Expr RPAR",
+        "ArgList -> ArgList COMMA Expr | Expr | ε"
+    };
+    vector<string> rules7 = {
+        "Prog -> DeclList",
+        "DeclList -> DeclList Decl | Decl",
+        "Decl -> VarDecl | FunDecl",
+        "VarDecl -> Type ID SEMI | Type ID LBRACK INT_NUM RBRACK SEMI | Type ID ASG Expr SEMI",
+        "Type -> INT | FLOAT | VOID",
+        "FunDecl -> Type ID LPAR ParamList RPAR CompStmt",
+        "ParamList -> ParamList COMMA Param | Param | ε",
+        "Param -> Type ID | Type ID LBRACK RBRACK",
+        "CompStmt -> LBR StmtList RBR",
+        "StmtList -> StmtList Stmt | ε",
+        "Stmt -> VarDecl | OtherStmt",
+        "OtherStmt -> ExprStmt | CompStmt | IfStmt | LoopStmt | RetStmt",
+        "ExprStmt -> Expr SEMI | SEMI",
+        "IfStmt -> IF LPAR Expr RPAR CompStmt | IF LPAR Expr RPAR CompStmt ELSE CompStmt",
+        "LoopStmt -> WHILE LPAR Expr RPAR Stmt",
+        "RetStmt -> RETURN Expr SEMI | RETURN SEMI",
+        "Expr -> ID ASG Expr | ID LBRACK Expr RBRACK ASG Expr | ID LPAR ArgList RPAR | SimpExpr",
+        "SimpExpr -> AddExpr REL_OP AddExpr | AddExpr",
+        "AddExpr -> AddExpr ADD Term | Term",
+        "Term -> Term MUL Fact | Fact",
+        "Fact -> ID | ID LBRACK Expr RBRACK | INT_NUM | FLOAT_NUM | LPAR Expr RPAR",
+        "ArgList -> ArgList COMMA Expr | Expr | ε"
+    };
     
     Grammar g;
-    g.parse(rules5);
+    g.parse(rules7);
     
     // 首先计算FIRST集
     g.compute_first();
