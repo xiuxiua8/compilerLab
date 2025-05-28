@@ -4,62 +4,46 @@ CXX = g++
 CXXFLAGS = -std=c++14 -Wall -g
 LDFLAGS =
 
+FILE = ./code/16.src
+
 # Target files
-TARGETS = semantic_analyzer compiler_driver intermediate_code_generator 
+TARGETS = dfa lexer lr0 semantic_analyzer intermediate_code_generator 
 
 # Default target
 all: $(TARGETS)
 
-# Semantic Analyzer (for independent testing)
-semantic_analyzer: semantic_analyzer.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
+# Lexical Analyzer
+dfa: lab1/dfa.cpp
+	$(CXX) $(CXXFLAGS) -DDFA_MAIN -o $@ $< $(LDFLAGS)
 
-# Compiler Driver
-compiler_driver: compiler_driver.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
+lexer: lexer.cpp
+	$(CXX) $(CXXFLAGS) -DLEXER_MAIN -o $@ $< $(LDFLAGS)
+	
+# Syntax Analyzer
+lr0: lab3/lr0.cpp
+	$(CXX) $(CXXFLAGS) -DLR0_MAIN -o $@ $< $(LDFLAGS)
+
+# Semantic Analyzer 
+semantic_analyzer: semantic_analyzer.cpp
+	$(CXX) $(CXXFLAGS) -DSEMANTIC_ANALYZER_MAIN -o $@ $< $(LDFLAGS)
 
 # Intermediate Code Generator
 intermediate_code_generator: intermediate_code_generator.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
 
-
-# Generate SLR table for Experiment Four
-lab3/slr_output.txt: lab3/lr0
-	cd lab3 && ./lr0 > slr_output.txt
-
-# Test Compiler Driver
-test-driver: compiler_driver lab1/dfa
-	./compiler_driver code/10.src
-
-# Test Intermediate Code Generator
-test-icg: intermediate_code_generator
-	./intermediate_code_generator
-
-# Test Integrated Compiler
-test: integrated_compiler
-	./integrated_compiler code/10.src
-
-# Test Semantic Analyzer
-test-semantic: semantic_analyzer
-	./semantic_analyzer --debug
-
-# Test Lexical Analyzer
-test-lexer: lab1/dfa
-	cd lab1 && ./dfa
-
 # Clean
 clean:
-	rm -f $(TARGETS) *.o slr_table_init.cpp lab3/slr_output.txt tokens.txt tokens.tmp
+	rm -rf $(TARGETS) *.o 
 
 # Full test procedure
-test-all: all
+test: all
 	@echo "=== Testing Lexical Analyzer ==="
-	cd lab1 && echo "3" | ./dfa ../code/10.src
+	./lexer $(FILE)
 	@echo "\n=== Testing Syntax Analyzer ==="
-	cd lab3 && ./lr0
+	./lr0
 	@echo "\n=== Testing Semantic Analyzer ==="
 	./semantic_analyzer --debug
 	@echo "\n=== Testing Compiler Driver ==="
-	./compiler_driver code/10.src
-
-.PHONY: all clean test test-semantic test-lexer test-driver test-all
+	./intermediate_code_generator $(FILE)
+	
+.PHONY: all clean test

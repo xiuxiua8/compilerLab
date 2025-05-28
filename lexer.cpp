@@ -14,7 +14,6 @@
 
 using namespace std;
 
-// ===== 词法分析器（简化版）=====
 enum class TokenType {
     // 关键字
     INT, FLOAT, VOID, IF, ELSE, WHILE, RETURN,
@@ -73,7 +72,7 @@ private:
     string filename;
     size_t pos;
     int lineNumber;
-    int column;
+    //int column;
     vector<Token> tokens;
     
     map<string, TokenType> keywords = {
@@ -87,7 +86,7 @@ private:
     };
     
 public:
-    Lexer(const string filename) : filename(filename), pos(0), lineNumber(1), column(1) {
+    Lexer(const string filename) : filename(filename), pos(0), lineNumber(1) {
         DFA dfa;
         // 初始化关键字表
         dfa.initKeywords();
@@ -222,9 +221,10 @@ private:
 
 };
 
-
-int lexer_test() {
-    Lexer lexer("./code/19.src");
+#ifdef LEXER_MAIN  
+int main(int argc, char* argv[]) {
+    Lexer lexer(argv[1]);
     lexer.printTokens();
     return 0;
 }
+#endif

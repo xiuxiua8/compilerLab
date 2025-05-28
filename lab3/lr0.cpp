@@ -696,7 +696,8 @@ void print_slr_table(const SLRTable& table, const Grammar& g, int state_count) {
     }
 }
 
-int test(int argc, char* argv[]) {
+#ifdef LR0_MAIN
+int main(int argc, char* argv[]) {
     for (int i = 1; i < argc; i++) {
         string arg = argv[i];
         if (arg == "--debug" || arg == "-d") {
@@ -809,3 +810,4 @@ int test(int argc, char* argv[]) {
     print_slr_table(slr, g, cc.C.size());
     return 0;
 } 
+#endif
