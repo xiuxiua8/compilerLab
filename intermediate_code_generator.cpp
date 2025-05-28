@@ -6,8 +6,13 @@
 #include <sstream>
 #include <iomanip>
 #include <functional>
+#include "semantic_analyzer.cpp"
 
 using namespace std;
+
+
+extern bool DEBUG_MODE;  
+#define DEBUG_PRINT(x) if(DEBUG_MODE) { x; }
 
 // ==================== 四元式定义 ====================
 struct Quadruple {
@@ -210,27 +215,6 @@ void testIntermediateCodeGeneration() {
     generator.printQuadruples();
 }
 
-// ==================== 基于AST的代码生成 ====================
-// 这里需要与之前的AST节点结合
-
-// 简化的AST节点类型（用于演示）
-enum class ASTNodeType {
-    BINARY_OP, IDENTIFIER, LITERAL, ASSIGNMENT, IF_STMT, WHILE_STMT, FUNCTION_CALL
-};
-
-class SimpleASTNode {
-public:
-    ASTNodeType type;
-    string value;
-    vector<shared_ptr<SimpleASTNode>> children;
-    
-    SimpleASTNode(ASTNodeType t, const string& v = "") : type(t), value(v) {}
-    
-    void addChild(shared_ptr<SimpleASTNode> child) {
-        children.push_back(child);
-    }
-};
-
 class ASTCodeGenerator {
 private:
     IntermediateCodeGenerator& generator;
@@ -239,97 +223,234 @@ public:
     ASTCodeGenerator(IntermediateCodeGenerator& gen) : generator(gen) {}
     
     // 为AST节点生成中间代码
-    string generateCode(shared_ptr<SimpleASTNode> node) {
+    string generateCode(shared_ptr<ASTNode> node) {
         if (!node) return "";
         
         switch (node->type) {
-            case ASTNodeType::LITERAL:
-            case ASTNodeType::IDENTIFIER:
-                return node->value;
+            case NodeType::LITERAL: {
+                auto literal = static_pointer_cast<LiteralNode>(node);
+                return literal->value;
+            }
+            
+            case NodeType::IDENTIFIER: {
+                auto identifier = static_pointer_cast<IdentifierNode>(node);
+                return identifier->name;
+            }
+            
+            case NodeType::BINARY_OP: {
+                auto binaryOp = static_pointer_cast<BinaryOpNode>(node);
+                string left = generateCode(binaryOp->left);
+                string right = generateCode(binaryOp->right);
+                return generator.generateArithmeticExpr(binaryOp->op, left, right);
+            }
+            
+            case NodeType::ASSIGNMENT: {
+                auto assignment = static_pointer_cast<AssignmentNode>(node);
+                string target = generateCode(assignment->target);
+                string source = generateCode(assignment->value);
+                generator.generateAssignment(target, source);
+                return target;
+            }
+            
+            case NodeType::IF_STMT: {
+                auto ifStmt = static_pointer_cast<IfStmtNode>(node);
+                string condition = generateCode(ifStmt->condition);
                 
-            case ASTNodeType::BINARY_OP: {
-                if (node->children.size() >= 2) {
-                    string left = generateCode(node->children[0]);
-                    string right = generateCode(node->children[1]);
-                    return generator.generateArithmeticExpr(node->value, left, right);
-                }
-                break;
+                generator.generateIfStatement(condition,
+                    [&]() { generateCode(ifStmt->thenStmt); },
+                    ifStmt->elseStmt ? function<void()>([&]() { generateCode(ifStmt->elseStmt); }) : function<void()>()
+                );
+                return "";
             }
             
-            case ASTNodeType::ASSIGNMENT: {
-                if (node->children.size() >= 2) {
-                    string target = generateCode(node->children[0]);
-                    string source = generateCode(node->children[1]);
-                    generator.generateAssignment(target, source);
-                }
-                break;
+            case NodeType::WHILE_STMT: {
+                auto whileStmt = static_pointer_cast<WhileStmtNode>(node);
+                string condition = generateCode(whileStmt->condition);
+                
+                generator.generateWhileLoop(condition,
+                    [&]() { generateCode(whileStmt->body); }
+                );
+                return "";
             }
             
-            case ASTNodeType::IF_STMT: {
-                if (node->children.size() >= 2) {
-                    string condition = generateCode(node->children[0]);
-                    auto thenStmt = node->children[1];
-                    auto elseStmt = (node->children.size() > 2) ? node->children[2] : nullptr;
-                    
-                    generator.generateIfStatement(condition,
-                        [&]() { generateCode(thenStmt); },
-                        elseStmt ? function<void()>([&]() { generateCode(elseStmt); }) : function<void()>()
-                    );
-                }
-                break;
-            }
-            
-            case ASTNodeType::FUNCTION_CALL: {
+            case NodeType::FUNCTION_CALL: {
+                auto funcCall = static_pointer_cast<FunctionCallNode>(node);
                 vector<string> args;
-                for (size_t i = 1; i < node->children.size(); i++) {
-                    args.push_back(generateCode(node->children[i]));
+                for (auto& arg : funcCall->arguments) {
+                    args.push_back(generateCode(arg));
                 }
-                return generator.generateFunctionCall(node->value, args);
+                return generator.generateFunctionCall(funcCall->functionName, args);
+            }
+            
+            case NodeType::FUNCTION_DEF: {
+                auto funcDef = static_pointer_cast<FunctionDefNode>(node);
+                
+                // 生成函数标签
+                generator.generateLabel(funcDef->name);
+                
+                // 处理函数体
+                if (funcDef->body) {
+                    generateCode(funcDef->body);
+                }
+                
+                // 如果函数没有显式return，添加默认return
+                if (funcDef->returnType == DataType::VOID) {
+                    generator.generateReturn();
+                } else {
+                    // 对于非void函数，如果没有return语句，生成默认返回值
+                    generator.generateReturn("0");
+                }
+                
+                return "";
+            }
+            
+            case NodeType::VARIABLE_DECL: {
+                auto varDecl = static_pointer_cast<VariableDeclNode>(node);
+                
+                // 如果有初始化表达式，生成赋值代码
+                if (varDecl->initializer) {
+                    string initValue = generateCode(varDecl->initializer);
+                    generator.generateAssignment(varDecl->name, initValue);
+                }
+                
+                return "";
+            }
+            
+            case NodeType::COMPOUND_STMT: {
+                auto compound = static_pointer_cast<CompoundStmtNode>(node);
+                
+                // 依次处理复合语句中的每个语句
+                for (auto& stmt : compound->statements) {
+                    generateCode(stmt);
+                }
+                
+                return "";
+            }
+            
+            case NodeType::RETURN_STMT: {
+                // 注意：这里假设ReturnStmtNode存在，如果不存在需要添加
+                // 暂时处理为简单的return
+                generator.generateReturn();
+                return "";
+            }
+            
+            case NodeType::EXPRESSION_STMT: {
+                // 表达式语句，直接生成表达式的代码
+                // 这里需要根据实际的ExpressionStmtNode结构来实现
+                return "";
+            }
+            
+            case NodeType::PROGRAM: {
+                auto program = static_pointer_cast<ProgramNode>(node);
+                
+                // 处理全局变量声明
+                for (auto& globalVar : program->globalVariables) {
+                    generateCode(globalVar);
+                }
+                
+                // 处理函数定义
+                for (auto& func : program->functions) {
+                    generateCode(func);
+                }
+                
+                return "";
             }
             
             default:
+                DEBUG_PRINT(cout << "警告：未处理的AST节点类型: " << nodeTypeToString(node->type) << endl);
                 break;
         }
         
         return "";
     }
+    
+    // 生成完整程序的中间代码
+    void generateProgramCode(shared_ptr<ASTNode> ast) {
+        if (!ast) {
+            cout << "错误：AST为空" << endl;
+            return;
+        }
+        
+        cout << "\n=== 开始生成中间代码 ===" << endl;
+        
+        // 清空之前的代码
+        generator.clear();
+        
+        // 生成代码
+        generateCode(ast);
+        
+        cout << "=== 中间代码生成完成 ===" << endl;
+        
+        // 打印生成的四元式
+        generator.printQuadruples();
+    }
 };
 
-// 测试AST代码生成
-void testASTCodeGeneration() {
-    cout << "\n\n=== 测试基于AST的代码生成 ===" << endl;
-    
-    IntermediateCodeGenerator generator;
-    ASTCodeGenerator astGen(generator);
-    
-    // 构建AST: x = a + b * 2
-    auto assignment = make_shared<SimpleASTNode>(ASTNodeType::ASSIGNMENT);
-    auto x = make_shared<SimpleASTNode>(ASTNodeType::IDENTIFIER, "x");
-    auto plus = make_shared<SimpleASTNode>(ASTNodeType::BINARY_OP, "+");
-    auto a = make_shared<SimpleASTNode>(ASTNodeType::IDENTIFIER, "a");
-    auto mult = make_shared<SimpleASTNode>(ASTNodeType::BINARY_OP, "*");
-    auto b = make_shared<SimpleASTNode>(ASTNodeType::IDENTIFIER, "b");
-    auto two = make_shared<SimpleASTNode>(ASTNodeType::LITERAL, "2");
-    
-    mult->addChild(b);
-    mult->addChild(two);
-    plus->addChild(a);
-    plus->addChild(mult);
-    assignment->addChild(x);
-    assignment->addChild(plus);
-    
-    // 生成代码
-    astGen.generateCode(assignment);
-    
-    generator.printQuadruples();
-}
 
-int main() {
-    // 测试基本的中间代码生成
-    testIntermediateCodeGeneration();
+int main(int argc, char* argv[]) {
+    // 处理命令行参数
+    bool testMode = false;
+    string inputFile = "";
     
-    // 测试基于AST的代码生成
-    testASTCodeGeneration();
+    for (int i = 1; i < argc; i++) {
+        if (string(argv[i]) == "--debug" || string(argv[i]) == "-d") {
+            DEBUG_MODE = true;
+        } else if (string(argv[i]) == "--test" || string(argv[i]) == "-t") {
+            testMode = true;
+        } else {
+            inputFile = argv[i];
+        }
+    }
+    
+    if (testMode) {
+        // 运行测试
+        cout << "=== 运行中间代码生成测试 ===" << endl;
+        testIntermediateCodeGeneration();
+        return 0;
+    }
+    
+    if (inputFile.empty()) {
+        cout << "用法: " << argv[0] << " [选项] <输入文件>" << endl;
+        cout << "选项:" << endl;
+        cout << "  --debug, -d    启用调试模式" << endl;
+        cout << "  --test, -t     运行测试模式" << endl;
+        return 1;
+    }
+    
+    try {
+        // 创建语法分析器并解析文件
+        SLRParser parser;
+        parser.loadSLRTable();
+        
+        cout << "=== 开始语法分析 ===" << endl;
+        shared_ptr<ASTNode> ast = parser.parse(inputFile);
+        
+        if (!ast) {
+            cout << "错误：语法分析失败，无法生成AST" << endl;
+            return 1;
+        }
+        
+        cout << "=== 语法分析完成，AST生成成功 ===" << endl;
+        
+        // 打印AST（可选）
+        if (DEBUG_MODE) {
+            cout << "\n=== AST结构 ===" << endl;
+            ast->printTree();
+        }
+        
+        // 创建中间代码生成器
+        IntermediateCodeGenerator generator;
+        ASTCodeGenerator astGenerator(generator);
+        
+        // 生成中间代码
+        astGenerator.generateProgramCode(ast);
+        
+        cout << "\n=== 程序执行完成 ===" << endl;
+        
+    } catch (const exception& e) {
+        cout << "错误：" << e.what() << endl;
+        return 1;
+    }
     
     return 0;
 } 

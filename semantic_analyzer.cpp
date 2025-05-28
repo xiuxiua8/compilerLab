@@ -895,6 +895,20 @@ public:
     }
 };
 
+
+
+// 将AST保存为JSON文件
+void saveASTtoJSON(shared_ptr<ASTNode> ast, const string& filename) {
+    ofstream file(filename);
+    if (file.is_open()) {
+        file << ast->toJSON() << endl;
+        file.close();
+        cout << "AST已保存到文件: " << filename << endl;
+    } else {
+        cerr << "无法打开文件: " << filename << endl;
+    }
+}
+
 // 符号表条目
 struct SymbolEntry {
     string name;
@@ -1443,12 +1457,12 @@ public:
         g.parse(rules);
         g.compute_first();
         g.compute_follow();
-        //g.print_grammar();  // 打印语法规则，查看产生式编号
+        g.print_grammar();  // 打印语法规则，查看产生式编号
         CanonicalCollection cc = build_canonical_collection(g);
         //print_canonical_collection(cc, g);
 
         table = build_slr_table(g, cc);
-        print_slr_table(table, g, cc.C.size());
+        //print_slr_table(table, g, cc.C.size());
 
     }
     
@@ -1567,6 +1581,7 @@ public:
                     cout << "\n=== AST结构 ===" << endl;
                     if (ast) {
                         ast->printTree();
+                        saveASTtoJSON(ast, "ast.json");
                     }
                     return ast;
                 }
@@ -2834,18 +2849,6 @@ private:
 
 
 
-// 将AST保存为JSON文件
-void saveASTtoJSON(shared_ptr<ASTNode> ast, const string& filename) {
-    ofstream file(filename);
-    if (file.is_open()) {
-        file << ast->toJSON() << endl;
-        file.close();
-        cout << "AST已保存到文件: " << filename << endl;
-    } else {
-        cerr << "无法打开文件: " << filename << endl;
-    }
-}
-
 // 测试符号表和语义分析
 void testSemanticAnalysis() {
     cout << "=== 测试符号表和语义分析 ===" << endl;
@@ -3072,7 +3075,7 @@ int main0(int argc, char* argv[]) {
 } 
 
 
-int main(int argc, char* argv[]) {
+int semantic_analyzer(int argc, char* argv[]) {
     for (int i = 1; i < argc; i++) {
         if (string(argv[i]) == "--debug" || string(argv[i]) == "-d") {
             DEBUG_MODE = true;

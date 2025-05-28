@@ -2,3 +2,5 @@ code
 
 *.yml
 *.plist
+*.dSYM
+*.json
