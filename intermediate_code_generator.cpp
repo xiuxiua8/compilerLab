@@ -10,7 +10,6 @@
 
 using namespace std;
 
-
 extern bool DEBUG_MODE;  
 #define DEBUG_PRINT(x) if(DEBUG_MODE) { x; }
 
@@ -175,46 +174,6 @@ public:
         labelCounter = 0;
     }
 };
-
-// ==================== 测试函数 ====================
-void testIntermediateCodeGeneration() {
-    cout << "=== 测试中间代码生成 ===" << endl;
-    
-    IntermediateCodeGenerator generator;
-    
-    // 测试1: 算术表达式 x = a + b * c
-    cout << "\n测试1: x = a + b * c" << endl;
-    string t1 = generator.generateArithmeticExpr("*", "b", "c");
-    string t2 = generator.generateArithmeticExpr("+", "a", t1);
-    generator.generateAssignment("x", t2);
-    
-    // 测试2: if语句 if (x > 0) y = 1; else y = 0;
-    cout << "\n测试2: if (x > 0) y = 1; else y = 0;" << endl;
-    string cond = generator.generateRelationalExpr(">", "x", "0");
-    generator.generateIfStatement(cond,
-        [&]() { generator.generateAssignment("y", "1"); },
-        [&]() { generator.generateAssignment("y", "0"); }
-    );
-    
-    // 测试3: while循环 while (i < 10) i = i + 1;
-    cout << "\n测试3: while (i < 10) i = i + 1;" << endl;
-    generator.generateWhileLoop(
-        generator.generateRelationalExpr("<", "i", "10"),
-        [&]() {
-            string temp = generator.generateArithmeticExpr("+", "i", "1");
-            generator.generateAssignment("i", temp);
-        }
-    );
-    
-    // 测试4: 函数调用 result = add(x, y)
-    cout << "\n测试4: result = add(x, y)" << endl;
-    string funcResult = generator.generateFunctionCall("add", {"x", "y"});
-    generator.generateAssignment("result", funcResult);
-    
-    // 打印生成的四元式
-    generator.printQuadruples();
-}
-
 class ASTCodeGenerator {
 private:
     IntermediateCodeGenerator& generator;
@@ -293,13 +252,7 @@ public:
                     generateCode(funcDef->body);
                 }
                 
-                // 如果函数没有显式return，添加默认return
-                if (funcDef->returnType == DataType::VOID) {
-                    generator.generateReturn();
-                } else {
-                    // 对于非void函数，如果没有return语句，生成默认返回值
-                    generator.generateReturn("0");
-                }
+                // 注意：不再自动添加return语句，让源代码中的return语句自己处理
                 
                 return "";
             }
@@ -328,9 +281,15 @@ public:
             }
             
             case NodeType::RETURN_STMT: {
-                // 注意：这里假设ReturnStmtNode存在，如果不存在需要添加
-                // 暂时处理为简单的return
-                generator.generateReturn();
+                auto returnStmt = static_pointer_cast<ReturnStmtNode>(node);
+                if (returnStmt->returnValue) {
+                    // 有返回值的return语句
+                    string returnValue = generateCode(returnStmt->returnValue);
+                    generator.generateReturn(returnValue);
+                } else {
+                    // 无返回值的return语句
+                    generator.generateReturn();
+                }
                 return "";
             }
             
@@ -389,31 +348,21 @@ public:
 
 int main(int argc, char* argv[]) {
     // 处理命令行参数
-    bool testMode = false;
     string inputFile = "";
     
     for (int i = 1; i < argc; i++) {
         if (string(argv[i]) == "--debug" || string(argv[i]) == "-d") {
             DEBUG_MODE = true;
-        } else if (string(argv[i]) == "--test" || string(argv[i]) == "-t") {
-            testMode = true;
         } else {
             inputFile = argv[i];
         }
     }
     
-    if (testMode) {
-        // 运行测试
-        cout << "=== 运行中间代码生成测试 ===" << endl;
-        testIntermediateCodeGeneration();
-        return 0;
-    }
-    
+   
     if (inputFile.empty()) {
         cout << "用法: " << argv[0] << " [选项] <输入文件>" << endl;
         cout << "选项:" << endl;
         cout << "  --debug, -d    启用调试模式" << endl;
-        cout << "  --test, -t     运行测试模式" << endl;
         return 1;
     }
     

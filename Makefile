@@ -37,13 +37,24 @@ clean:
 
 # Full test procedure
 test: all
-	@echo "=== Testing Lexical Analyzer ==="
+	@echo "============ Testing Lexical Analyzer ========================"
 	./lexer $(FILE)
-	@echo "\n=== Testing Syntax Analyzer ==="
+	@echo "============ Testing Syntax Analyzer ========================="
 	./lr0
-	@echo "\n=== Testing Semantic Analyzer ==="
-	./semantic_analyzer --debug
-	@echo "\n=== Testing Compiler Driver ==="
+	@echo "============ Testing Semantic Analyzer ======================="
+	./semantic_analyzer $(FILE)
+	@echo "============ Testing Intermediate Code Generator ============="
 	./intermediate_code_generator $(FILE)
-	
-.PHONY: all clean test
+
+# Debug mode
+debug: all
+	@echo "============ Testing Lexical Analyzer ========================"
+	./lexer $(FILE)
+	@echo "============ Testing Syntax Analyzer ========================="
+	./lr0 --debug
+	@echo "============ Testing Semantic Analyzer ======================="
+	./semantic_analyzer $(FILE) --debug
+	@echo "============ Testing Intermediate Code Generator ============="
+	./intermediate_code_generator $(FILE) --debug
+
+.PHONY: all clean test debug
