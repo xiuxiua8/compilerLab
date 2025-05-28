@@ -14,8 +14,8 @@
 using namespace std;
 
 // 调试标志
-//bool DEBUG_MODE = false;
-//#define DEBUG_PRINT(x) if(DEBUG_MODE) { x; }
+extern bool DEBUG_MODE;  // 声明为外部变量，定义在lr0.cpp中
+#define DEBUG_PRINT(x) if(DEBUG_MODE) { x; }
 
 
 // 树状图打印辅助函数
@@ -1388,7 +1388,7 @@ public:
             "ExprStmt -> Expr SEMI",  // 28
             "ExprStmt -> SEMI",  // 29
             "IfStmt -> IF LPAR Expr RPAR CompStmt",  // 30
-            "IfStmt -> IF LPAR Expr RPAR CompStmt ELSE CompStmt",  // 31
+            "IfStmt -> IF LPAR Expr RPAR CompStmt ELSE Stmt",  // 31
             "LoopStmt -> WHILE LPAR Expr RPAR Stmt",  // 32
             "RetStmt -> RETURN Expr SEMI",  // 33
             "RetStmt -> RETURN SEMI",  // 34
@@ -1425,9 +1425,10 @@ public:
             "CompStmt -> LBR StmtList RBR",
             "StmtList -> StmtList Stmt | ε",
             "Stmt -> VarDecl | OtherStmt",
-            "OtherStmt -> ExprStmt | CompStmt | IfStmt | LoopStmt | RetStmt",
+            "OtherStmt -> ExprStmt | CompStmt | IfStmt | LoopStmt | RetStmt | PrintStmt",
+            "PrintStmt -> PRINT LPAR Expr RPAR SEMI",
             "ExprStmt -> Expr SEMI | SEMI",
-            "IfStmt -> IF LPAR Expr RPAR CompStmt | IF LPAR Expr RPAR CompStmt ELSE CompStmt",
+            "IfStmt -> IF LPAR Expr RPAR CompStmt | IF LPAR Expr RPAR CompStmt ELSE Stmt",
             "LoopStmt -> WHILE LPAR Expr RPAR Stmt",
             "RetStmt -> RETURN Expr SEMI | RETURN SEMI",
             "Expr -> ID ASG Expr | ID LBRACK Expr RBRACK ASG Expr | ID LPAR ArgList RPAR | SimpExpr",
@@ -1442,7 +1443,7 @@ public:
         g.parse(rules);
         g.compute_first();
         g.compute_follow();
-        //g.print_grammar();
+        //g.print_grammar();  // 打印语法规则，查看产生式编号
         CanonicalCollection cc = build_canonical_collection(g);
         //print_canonical_collection(cc, g);
 
@@ -1460,9 +1461,15 @@ public:
         do {
             token = lexer.getNextToken();
             tokens.push_back(token);
-            cout << "token: " << token.value << endl;
-        //} while (token.type != TokenType::EOF_TOKEN);
+            cout << "token: " << token.value << " (type: " << tokenTypeToString(token.type) << ")" << endl;
         } while (lexer.getPos() < lexer.getTokensSize());
+        
+        // 添加EOF token
+        Token eofToken;
+        eofToken.type = TokenType::EOF_TOKEN;
+        eofToken.value = "$";
+        tokens.push_back(eofToken);
+        cout << "token: " << eofToken.value << " (type: " << tokenTypeToString(eofToken.type) << ")" << endl;
         
         // 语法分析
         stateStack.clear();
@@ -1476,9 +1483,22 @@ public:
             Token currentToken = tokens[tokenIndex];
             string symbol = tokenTypeToString(currentToken.type);
             
+            // 将EOF_TOKEN转换为#符号
+            if (symbol == "EOF_TOKEN") {
+                symbol = "#";
+            }
+            
+            DEBUG_PRINT(cout << "处理token[" << tokenIndex << "]: " << symbol << " 在状态 " << state << endl);
+            
             // 查找ACTION表
             if (table.ACTION[state].count(symbol) == 0) {
                 cerr << "语法错误：状态 " << state << " 没有符号 " << symbol << " 的动作" << endl;
+                // 打印当前状态的所有ACTION条目
+                cerr << "状态 " << state << " 的ACTION条目：";
+                for (const auto& entry : table.ACTION[state]) {
+                    cerr << " " << entry.first << "->" << entry.second.type << entry.second.value;
+                }
+                cerr << endl;
                 return nullptr;
             }
             
@@ -1497,8 +1517,29 @@ public:
             } else if (action.type == 'r') {
                 // 归约
                 int prodNum = action.value;
-                shared_ptr<ASTNode> newNode = reduce(prodNum);
-                if (!newNode) return nullptr;
+                
+                // 获取产生式右部长度
+                int rightLength = getProductionRightLength(prodNum);
+                
+                // 弹出状态栈和节点栈
+                vector<shared_ptr<ASTNode>> children;
+                for (int i = 0; i < rightLength; i++) {
+                    if (!nodeStack.empty()) {
+                        children.push_back(nodeStack.back());
+                        nodeStack.pop_back();
+                    }
+                    if (!stateStack.empty()) {
+                        stateStack.pop_back();
+                    }
+                }
+                reverse(children.begin(), children.end());
+                
+                // 创建新节点
+                shared_ptr<ASTNode> newNode = createNodeFromProduction(prodNum, children);
+                if (!newNode) {
+                    cerr << "创建节点失败，产生式编号: " << prodNum << endl;
+                    return nullptr;
+                }
                 
                 // 获取产生式左部
                 string left = getProductionLeft(prodNum);
@@ -1507,6 +1548,12 @@ public:
                 state = stateStack.back();
                 if (table.GOTO[state].count(left) == 0) {
                     cerr << "语法错误：GOTO[" << state << ", " << left << "] 未定义" << endl;
+                    // 打印当前状态的所有GOTO条目
+                    cerr << "状态 " << state << " 的GOTO条目：";
+                    for (const auto& entry : table.GOTO[state]) {
+                        cerr << " " << entry.first << "->" << entry.second;
+                    }
+                    cerr << endl;
                     return nullptr;
                 }
                 
@@ -1514,12 +1561,27 @@ public:
                 nodeStack.push_back(newNode);
             } else if (action.type == 'a') {
                 // 接受
+                cout << "语法分析成功完成！" << endl;
                 if (!nodeStack.empty()) {
-                    return nodeStack.back();
+                    auto ast = nodeStack.back();
+                    cout << "\n=== AST结构 ===" << endl;
+                    if (ast) {
+                        ast->printTree();
+                    }
+                    return ast;
                 }
                 return nullptr;
             }
         }
+        
+        cout << "所有token处理完成，但没有遇到接受状态" << endl;
+        cout << "最终状态栈大小: " << stateStack.size() << endl;
+        cout << "最终节点栈大小: " << nodeStack.size() << endl;
+        if (!nodeStack.empty()) {
+            cout << "返回最后的节点" << endl;
+            return nodeStack.back();
+        }
+        
         return nullptr;
     }
     
@@ -1527,11 +1589,11 @@ private:
     shared_ptr<ASTNode> createTerminalNode(const Token& token) {
         switch (token.type) {
             case TokenType::ID:
-                return make_shared<IdentifierNode>(token.lexeme);
+                return make_shared<IdentifierNode>(token.value);
             case TokenType::INT_NUM:
-                return make_shared<LiteralNode>(token.lexeme, DataType::INT);
+                return make_shared<LiteralNode>(token.value, DataType::INT);
             case TokenType::FLOAT_NUM:
-                return make_shared<LiteralNode>(token.lexeme, DataType::FLOAT);
+                return make_shared<LiteralNode>(token.value, DataType::FLOAT);
             default:
                 // 对于其他终结符，暂时返回nullptr或创建一个占位节点
                 return nullptr;
@@ -2240,45 +2302,505 @@ private:
     }
     
     string getProductionLeft(int prodNum) {
-        if (prodNum < 0 || prodNum >= productions.size()) {
-            return "";
+        // 根据SLR表构建时的产生式编号返回左部
+        switch(prodNum) {
+            case 0: return "S'";
+            case 1: return "Prog";
+            case 2: case 3: return "DeclList";
+            case 4: case 5: return "Decl";
+            case 6: case 7: case 8: return "VarDecl";
+            case 9: case 10: case 11: return "Type";
+            case 12: return "FunDecl";
+            case 13: case 14: case 15: return "ParamList";
+            case 16: case 17: return "Param";
+            case 18: return "CompStmt";
+            case 19: case 20: return "StmtList";
+            case 21: case 22: return "Stmt";
+            case 23: case 24: case 25: case 26: case 27: case 28: return "OtherStmt";
+            case 29: return "PrintStmt";
+            case 30: case 31: return "ExprStmt";
+            case 32: case 33: return "IfStmt";
+            case 34: return "LoopStmt";
+            case 35: case 36: return "RetStmt";
+            case 37: case 38: case 39: case 40: return "Expr";
+            case 41: case 42: return "SimpExpr";
+            case 43: case 44: return "AddExpr";
+            case 45: case 46: return "Term";
+            case 47: case 48: case 49: case 50: case 51: return "Fact";
+            case 52: case 53: case 54: return "ArgList";
+            default: return "";
         }
-        
-        string prod = productions[prodNum];
-        size_t pos = prod.find(" -> ");
-        if (pos != string::npos) {
-            return prod.substr(0, pos);
+    }
+    
+    int getProductionRightLength(int prodNum) {
+        // 根据实际的产生式编号返回右部长度
+        switch(prodNum) {
+            case 0: return 1; // S' → Prog
+            case 1: return 1; // Prog → DeclList
+            case 2: return 2; // DeclList → DeclList Decl
+            case 3: return 1; // DeclList → Decl
+            case 4: return 1; // Decl → VarDecl
+            case 5: return 1; // Decl → FunDecl
+            case 6: return 3; // VarDecl → Type ID SEMI
+            case 7: return 6; // VarDecl → Type ID LBRACK INT_NUM RBRACK SEMI
+            case 8: return 5; // VarDecl → Type ID ASG Expr SEMI
+            case 9: return 1; // Type → INT
+            case 10: return 1; // Type → FLOAT
+            case 11: return 1; // Type → VOID
+            case 12: return 6; // FunDecl → Type ID LPAR ParamList RPAR CompStmt
+            case 13: return 3; // ParamList → ParamList COMMA Param
+            case 14: return 1; // ParamList → Param
+            case 15: return 0; // ParamList → ε
+            case 16: return 2; // Param → Type ID
+            case 17: return 4; // Param → Type ID LBRACK RBRACK
+            case 18: return 3; // CompStmt → LBR StmtList RBR
+            case 19: return 2; // StmtList → StmtList Stmt
+            case 20: return 0; // StmtList → ε
+            case 21: return 1; // Stmt → VarDecl
+            case 22: return 1; // Stmt → OtherStmt
+            case 23: return 1; // OtherStmt → ExprStmt
+            case 24: return 1; // OtherStmt → CompStmt
+            case 25: return 1; // OtherStmt → IfStmt
+            case 26: return 1; // OtherStmt → LoopStmt
+            case 27: return 1; // OtherStmt → RetStmt
+            case 28: return 1; // OtherStmt → PrintStmt
+            case 29: return 5; // PrintStmt → PRINT LPAR Expr RPAR SEMI
+            case 30: return 2; // ExprStmt → Expr SEMI
+            case 31: return 1; // ExprStmt → SEMI
+            case 32: return 5; // IfStmt → IF LPAR Expr RPAR CompStmt
+            case 33: return 7; // IfStmt → IF LPAR Expr RPAR CompStmt ELSE CompStmt
+            case 34: return 5; // LoopStmt → WHILE LPAR Expr RPAR Stmt
+            case 35: return 3; // RetStmt → RETURN Expr SEMI
+            case 36: return 2; // RetStmt → RETURN SEMI
+            case 37: return 3; // Expr → ID ASG Expr
+            case 38: return 6; // Expr → ID LBRACK Expr RBRACK ASG Expr
+            case 39: return 4; // Expr → ID LPAR ArgList RPAR
+            case 40: return 1; // Expr → SimpExpr
+            case 41: return 3; // SimpExpr → AddExpr REL_OP AddExpr
+            case 42: return 1; // SimpExpr → AddExpr
+            case 43: return 3; // AddExpr → AddExpr ADD Term
+            case 44: return 1; // AddExpr → Term
+            case 45: return 3; // Term → Term MUL Fact
+            case 46: return 1; // Term → Fact
+            case 47: return 1; // Fact → ID
+            case 48: return 4; // Fact → ID LBRACK Expr RBRACK
+            case 49: return 1; // Fact → INT_NUM
+            case 50: return 1; // Fact → FLOAT_NUM
+            case 51: return 3; // Fact → LPAR Expr RPAR
+            case 52: return 3; // ArgList → ArgList COMMA Expr
+            case 53: return 1; // ArgList → Expr
+            case 54: return 0; // ArgList → ε
+            default: return 0;
         }
-        
-        return "";
+    }
+    
+    shared_ptr<ASTNode> createNodeFromProduction(int prodNum, const vector<shared_ptr<ASTNode>>& children) {
+        // 根据产生式编号创建对应的AST节点
+        // 每个case对应一个语法产生式规则
+        switch(prodNum) {
+            case 0: // S' -> Prog (增广文法的开始符号)
+                return children.empty() ? nullptr : children[0];
+            
+            case 1: // Prog -> DeclList (程序由声明列表组成)
+                return children.empty() ? nullptr : children[0];
+            
+            case 2: { // DeclList -> DeclList Decl
+                if (children.size() < 2) return nullptr;
+                auto program = static_pointer_cast<ProgramNode>(children[0]);
+                auto decl = children[1];
+                
+                if (decl->type == NodeType::VARIABLE_DECL) {
+                    program->addGlobalVariable(static_pointer_cast<VariableDeclNode>(decl));
+                } else if (decl->type == NodeType::FUNCTION_DEF) {
+                    program->addFunction(static_pointer_cast<FunctionDefNode>(decl));
+                }
+                
+                return program;
+            }
+            
+            case 3: { // DeclList -> Decl
+                if (children.empty()) return nullptr;
+                auto program = make_shared<ProgramNode>();
+                auto decl = children[0];
+                
+                if (decl->type == NodeType::VARIABLE_DECL) {
+                    program->addGlobalVariable(static_pointer_cast<VariableDeclNode>(decl));
+                } else if (decl->type == NodeType::FUNCTION_DEF) {
+                    program->addFunction(static_pointer_cast<FunctionDefNode>(decl));
+                }
+                
+                return program;
+            }
+            
+            case 4: // Decl -> VarDecl
+            case 5: // Decl -> FunDecl
+                return children.empty() ? nullptr : children[0];
+            
+            case 6: { // VarDecl -> Type ID SEMI
+                if (children.size() < 3) return nullptr;
+                DataType varType = getDataTypeFromNode(children[0]);
+                string varName = getIdentifierName(children[1]);
+                return make_shared<VariableDeclNode>(varType, varName);
+            }
+            
+            case 7: { // VarDecl -> Type ID LBRACK INT_NUM RBRACK SEMI
+                if (children.size() < 6) return nullptr;
+                DataType baseType = getDataTypeFromNode(children[0]);
+                string varName = getIdentifierName(children[1]);
+                int arraySize = stoi(getLiteralValue(children[3]));
+                
+                DataType arrayType = (baseType == DataType::INT) ? DataType::ARRAY_INT : DataType::ARRAY_FLOAT;
+                auto varDecl = make_shared<VariableDeclNode>(arrayType, varName);
+                varDecl->isArray = true;
+                varDecl->arraySize = arraySize;
+                
+                return varDecl;
+            }
+            
+            case 8: { // VarDecl -> Type ID ASG Expr SEMI
+                if (children.size() < 5) return nullptr;
+                DataType varType = getDataTypeFromNode(children[0]);
+                string varName = getIdentifierName(children[1]);
+                auto initExpr = static_pointer_cast<ExpressionNode>(children[3]);
+                
+                return make_shared<VariableDeclNode>(varType, varName, initExpr);
+            }
+            
+            case 9: // Type -> INT
+                return make_shared<LiteralNode>("int", DataType::INT);
+            
+            case 10: // Type -> FLOAT
+                return make_shared<LiteralNode>("float", DataType::FLOAT);
+            
+            case 11: // Type -> VOID
+                return make_shared<LiteralNode>("void", DataType::VOID);
+            
+            case 12: { // FunDecl -> Type ID LPAR ParamList RPAR CompStmt
+                if (children.size() < 6) return nullptr;
+                DataType returnType = getDataTypeFromNode(children[0]);
+                string funcName = getIdentifierName(children[1]);
+                auto paramList = children[3]; // ParamList节点
+                auto body = static_pointer_cast<CompoundStmtNode>(children[5]);
+                
+                auto func = make_shared<FunctionDefNode>(returnType, funcName);
+                func->body = body;
+                
+                // 处理参数列表
+                auto params = getParameterList(paramList);
+                for (auto param : params) {
+                    func->addParameter(param);
+                }
+                
+                return func;
+            }
+            
+            case 13: { // ParamList -> ParamList COMMA Param
+                if (children.size() < 3) return nullptr;
+                // 创建参数列表节点（使用CompoundStmtNode临时表示）
+                auto paramList = make_shared<CompoundStmtNode>();
+                auto existingParams = getParameterList(children[0]);
+                auto newParam = static_pointer_cast<VariableDeclNode>(children[2]);
+                
+                // 添加现有参数
+                for (auto param : existingParams) {
+                    paramList->addStatement(param);
+                }
+                // 添加新参数
+                paramList->addStatement(newParam);
+                
+                return paramList;
+            }
+            
+            case 14: { // ParamList -> Param
+                if (children.empty()) return nullptr;
+                // 创建只包含一个参数的参数列表
+                auto paramList = make_shared<CompoundStmtNode>();
+                auto param = static_pointer_cast<VariableDeclNode>(children[0]);
+                paramList->addStatement(param);
+                return paramList;
+            }
+            
+            case 15: { // ParamList -> ε (空产生式)
+                // 返回一个空的复合语句节点来表示空参数列表
+                return make_shared<CompoundStmtNode>();
+            }
+            
+            case 16: { // Param -> Type ID
+                if (children.size() < 2) return nullptr;
+                DataType paramType = getDataTypeFromNode(children[0]);
+                string paramName = getIdentifierName(children[1]);
+                return make_shared<VariableDeclNode>(paramType, paramName);
+            }
+            
+            case 17: { // Param -> Type ID LBRACK RBRACK
+                if (children.size() < 4) return nullptr;
+                DataType baseType = getDataTypeFromNode(children[0]);
+                string paramName = getIdentifierName(children[1]);
+                DataType arrayType = (baseType == DataType::INT) ? DataType::ARRAY_INT : DataType::ARRAY_FLOAT;
+                auto param = make_shared<VariableDeclNode>(arrayType, paramName);
+                param->isArray = true;
+                return param;
+            }
+            
+            case 18: { // CompStmt -> LBR StmtList RBR
+                if (children.size() < 3) return nullptr;
+                return children[1]; // 返回StmtList
+            }
+            
+            case 19: { // StmtList -> StmtList Stmt
+                if (children.size() < 2) return nullptr;
+                auto stmtList = static_pointer_cast<CompoundStmtNode>(children[0]);
+                auto stmt = static_pointer_cast<StatementNode>(children[1]);
+                stmtList->addStatement(stmt);
+                return stmtList;
+            }
+            
+            case 20: { // StmtList -> ε (空产生式)
+                return make_shared<CompoundStmtNode>();
+            }
+            
+            case 21: // Stmt -> VarDecl
+            case 22: // Stmt -> OtherStmt
+            case 23: // OtherStmt -> ExprStmt
+            case 24: // OtherStmt -> CompStmt
+            case 25: // OtherStmt -> IfStmt
+            case 26: // OtherStmt -> LoopStmt
+            case 27: // OtherStmt -> RetStmt
+                return children.empty() ? nullptr : children[0];
+            
+            case 28: { // ExprStmt -> Expr SEMI
+                if (children.size() < 2) return nullptr;
+                return children[0]; // 返回表达式
+            }
+            
+            case 29: { // ExprStmt -> SEMI
+                return nullptr; // 空语句
+            }
+            
+            case 30: { // ExprStmt -> Expr SEMI
+                if (children.size() < 2) return nullptr;
+                return children[0]; // 返回表达式
+            }
+            
+            case 31: { // ExprStmt -> SEMI
+                return nullptr; // 空语句
+            }
+            
+            case 32: { // IfStmt -> IF LPAR Expr RPAR CompStmt
+                if (children.size() < 5) return nullptr;
+                auto condition = static_pointer_cast<ExpressionNode>(children[2]);
+                auto thenStmt = static_pointer_cast<StatementNode>(children[4]);
+                return make_shared<IfStmtNode>(condition, thenStmt);
+            }
+            
+            case 33: { // IfStmt -> IF LPAR Expr RPAR CompStmt ELSE CompStmt
+                if (children.size() < 7) return nullptr;
+                auto condition = static_pointer_cast<ExpressionNode>(children[2]);
+                auto thenStmt = static_pointer_cast<StatementNode>(children[4]);
+                auto elseStmt = static_pointer_cast<StatementNode>(children[6]);
+                return make_shared<IfStmtNode>(condition, thenStmt, elseStmt);
+            }
+            
+            case 34: { // LoopStmt -> WHILE LPAR Expr RPAR Stmt
+                if (children.size() < 5) return nullptr;
+                auto condition = static_pointer_cast<ExpressionNode>(children[2]);
+                auto body = static_pointer_cast<StatementNode>(children[4]);
+                return make_shared<WhileStmtNode>(condition, body);
+            }
+            
+            case 35: { // RetStmt -> RETURN Expr SEMI
+                if (children.size() < 3) return nullptr;
+                auto returnExpr = static_pointer_cast<ExpressionNode>(children[1]);
+                auto returnStmt = make_shared<AssignmentNode>(nullptr, returnExpr);
+                returnStmt->type = NodeType::RETURN_STMT;
+                return returnStmt;
+            }
+            
+            case 36: { // RetStmt -> RETURN SEMI
+                if (children.size() < 2) return nullptr;
+                auto returnStmt = make_shared<AssignmentNode>(nullptr, nullptr);
+                returnStmt->type = NodeType::RETURN_STMT;
+                return returnStmt;
+            }
+            
+            case 37: { // Expr -> ID ASG Expr (赋值表达式)
+                if (children.size() < 3) return nullptr;
+                auto target = static_pointer_cast<ExpressionNode>(children[0]);
+                auto value = static_pointer_cast<ExpressionNode>(children[2]);
+                return make_shared<AssignmentNode>(target, value);
+            }
+            
+            case 38: { // Expr -> ID LBRACK Expr RBRACK ASG Expr (数组赋值)
+                if (children.size() < 6) return nullptr;
+                auto arrayId = static_pointer_cast<IdentifierNode>(children[0]);
+                auto index = static_pointer_cast<ExpressionNode>(children[2]);
+                auto value = static_pointer_cast<ExpressionNode>(children[5]);
+                auto arrayAccess = make_shared<BinaryOpNode>("[]", arrayId, index);
+                arrayAccess->type = NodeType::ARRAY_ACCESS;
+                return make_shared<AssignmentNode>(arrayAccess, value);
+            }
+            
+            case 39: { // Expr -> ID LPAR ArgList RPAR (函数调用)
+                if (children.size() < 4) return nullptr;
+                string funcName = getIdentifierName(children[0]);
+                auto argList = getArgumentList(children[2]);
+                auto funcCall = make_shared<FunctionCallNode>(funcName);
+                for (auto arg : argList) {
+                    funcCall->addArgument(arg);
+                }
+                return funcCall;
+            }
+            
+            case 40: // Expr -> SimpExpr
+            case 42: // SimpExpr -> AddExpr
+            case 44: // AddExpr -> Term
+            case 46: // Term -> Fact
+            case 47: // Fact -> ID
+                return children.empty() ? nullptr : children[0];
+            
+            case 41: { // SimpExpr -> AddExpr REL_OP AddExpr
+                if (children.size() < 3) return nullptr;
+                auto left = static_pointer_cast<ExpressionNode>(children[0]);
+                string op = getOperatorValue(children[1]);
+                auto right = static_pointer_cast<ExpressionNode>(children[2]);
+                return make_shared<BinaryOpNode>(op, left, right);
+            }
+            
+            case 43: { // AddExpr -> AddExpr ADD Term
+                if (children.size() < 3) return nullptr;
+                auto left = static_pointer_cast<ExpressionNode>(children[0]);
+                auto right = static_pointer_cast<ExpressionNode>(children[2]);
+                return make_shared<BinaryOpNode>("+", left, right);
+            }
+            
+            case 45: { // Term -> Term MUL Fact
+                if (children.size() < 3) return nullptr;
+                auto left = static_pointer_cast<ExpressionNode>(children[0]);
+                auto right = static_pointer_cast<ExpressionNode>(children[2]);
+                return make_shared<BinaryOpNode>("*", left, right);
+            }
+            
+            case 48: { // Fact -> ID LBRACK Expr RBRACK
+                if (children.size() < 4) return nullptr;
+                auto arrayId = static_pointer_cast<ExpressionNode>(children[0]);
+                auto index = static_pointer_cast<ExpressionNode>(children[2]);
+                auto arrayAccess = make_shared<BinaryOpNode>("[]", arrayId, index);
+                arrayAccess->type = NodeType::ARRAY_ACCESS;
+                return arrayAccess;
+            }
+            
+            case 49: { // Fact -> INT_NUM
+                if (children.size() < 1) {
+                    cerr << "错误：产生式49 (Fact -> INT_NUM) 缺少子节点" << endl;
+                    return nullptr;
+                }
+                return children[0]; // 返回数字字面量
+            }
+            
+            case 50: { // Fact -> FLOAT_NUM
+                if (children.size() < 1) return nullptr;
+                return children[0]; // 返回浮点数字面量
+            }
+            
+            case 51: { // Fact -> LPAR Expr RPAR
+                if (children.size() < 3) return nullptr;
+                return children[1]; // 返回括号中的表达式
+            }
+            
+            case 52: { // ArgList -> ArgList COMMA Expr
+                if (children.size() < 3) return nullptr;
+                auto argList = make_shared<CompoundStmtNode>();
+                auto existingArgs = getArgumentList(children[0]);
+                auto newArg = static_pointer_cast<ExpressionNode>(children[2]);
+                for (auto arg : existingArgs) {
+                    argList->addStatement(make_shared<AssignmentNode>(nullptr, arg));
+                }
+                argList->addStatement(make_shared<AssignmentNode>(nullptr, newArg));
+                return argList;
+            }
+            
+            case 53: { // ArgList -> Expr
+                if (children.size() < 1) return nullptr;
+                auto argList = make_shared<CompoundStmtNode>();
+                auto expr = static_pointer_cast<ExpressionNode>(children[0]);
+                argList->addStatement(make_shared<AssignmentNode>(nullptr, expr));
+                return argList;
+            }
+            
+            case 54: { // ArgList -> ε
+                return make_shared<CompoundStmtNode>();
+            }
+            
+            default:
+                cerr << "错误：未实现的产生式编号 " << prodNum << endl;
+                cerr << "子节点数量: " << children.size() << endl;
+                for (size_t i = 0; i < children.size(); ++i) {
+                    if (children[i]) {
+                        cerr << "  子节点[" << i << "]: " << nodeTypeToString(children[i]->type) << endl;
+                    } else {
+                        cerr << "  子节点[" << i << "]: nullptr" << endl;
+                    }
+                }
+                return nullptr;
+        }
     }
     
     // 辅助函数实现
     DataType getDataTypeFromNode(shared_ptr<ASTNode> node) {
+        if (!node) {
+            cerr << "警告：getDataTypeFromNode 收到空节点" << endl;
+            return DataType::UNKNOWN;
+        }
         if (auto literal = static_pointer_cast<LiteralNode>(node)) {
             return literal->dataType;
         }
+        cerr << "警告：无法从节点类型 " << nodeTypeToString(node->type) << " 获取数据类型" << endl;
         return DataType::UNKNOWN;
     }
     
     string getIdentifierName(shared_ptr<ASTNode> node) {
+        if (!node) {
+            cerr << "警告：getIdentifierName 收到空节点" << endl;
+            return "";
+        }
         if (auto id = static_pointer_cast<IdentifierNode>(node)) {
             return id->name;
         }
+        cerr << "警告：节点类型 " << nodeTypeToString(node->type) << " 不是标识符" << endl;
         return "";
     }
     
     string getLiteralValue(shared_ptr<ASTNode> node) {
+        if (!node) {
+            cerr << "警告：getLiteralValue 收到空节点" << endl;
+            return "";
+        }
         if (auto literal = static_pointer_cast<LiteralNode>(node)) {
             return literal->value;
         }
+        cerr << "警告：节点类型 " << nodeTypeToString(node->type) << " 不是字面量" << endl;
         return "";
     }
     
     string getOperatorValue(shared_ptr<ASTNode> node) {
-        // 假设操作符也用LiteralNode表示
+        // 操作符可能以不同方式表示，这里提供更完善的处理
         if (auto literal = static_pointer_cast<LiteralNode>(node)) {
             return literal->value;
+        }
+        if (auto identifier = static_pointer_cast<IdentifierNode>(node)) {
+            // 某些操作符可能被识别为标识符
+            string name = identifier->name;
+            if (name == "ADD" || name == "+") return "+";
+            if (name == "SUB" || name == "-") return "-";
+            if (name == "MUL" || name == "*") return "*";
+            if (name == "DIV" || name == "/") return "/";
+            if (name == "LT" || name == "<") return "<";
+            if (name == "LE" || name == "<=") return "<=";
+            if (name == "GT" || name == ">") return ">";
+            if (name == "GE" || name == ">=") return ">=";
+            if (name == "EQ" || name == "==") return "==";
+            if (name == "NE" || name == "!=") return "!=";
+            return name;
         }
         return "";
     }

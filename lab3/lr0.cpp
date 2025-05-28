@@ -60,7 +60,9 @@ void Grammar::parse(const vector<string>& rules) {
             stringstream ssp(prod);
             string sym;
             while (ssp >> sym) {
-                symbols.push_back(sym);
+                if (sym != "ε") {  // 跳过ε符号，让空产生式的right为空数组
+                    symbols.push_back(sym);
+                }
             }
             productions.push_back({left, symbols});
         }
@@ -68,7 +70,7 @@ void Grammar::parse(const vector<string>& rules) {
     // 统计终结符
     for (const auto& prod : productions) {
         for (const auto& sym : prod.right) {
-            if (nonterminals.count(sym) == 0 && sym != "") {
+            if (nonterminals.count(sym) == 0 && sym != "" && sym != "ε") {
                 terminals.insert(sym);
             }
         }

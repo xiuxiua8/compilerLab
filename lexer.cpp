@@ -185,7 +185,7 @@ private:
             return TokenType::RETURN;
         } else if (type == "ID") {
             return TokenType::ID;
-        } else if (type == "INT_NUM") {
+        } else if (type == "NUM") {
             return TokenType::INT_NUM;
         } else if (type == "FLO") {
             return TokenType::FLOAT_NUM;
