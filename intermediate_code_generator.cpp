@@ -108,7 +108,23 @@ public:
     
     // 生成return语句的中间代码
     void generateReturn(const string& value = "") {
-        emit("return", value, "", "");
+        if (value.empty()) {
+            emit("return", "", "", "");
+        } else {
+            emit("return", value, "", "");
+        }
+    }
+    
+    // 生成数组访问（右值）：t = arr[i] => [] arr i t
+    string generateArrayAccess(const string& arrayName, const string& index) {
+        string temp = newTempVar();
+        emit("[]", arrayName, index, temp);
+        return temp;
+    }
+    
+    // 生成数组赋值（左值）：arr[i] = val => []= arr i val
+    void generateArrayAssignment(const string& arrayName, const string& index, const string& value) {
+        emit("[]=", arrayName, index, value);
     }
     
     // 生成if语句的中间代码
@@ -198,13 +214,35 @@ public:
             
             case NodeType::BINARY_OP: {
                 auto binaryOp = static_pointer_cast<BinaryOpNode>(node);
-                string left = generateCode(binaryOp->left);
-                string right = generateCode(binaryOp->right);
-                return generator.generateArithmeticExpr(binaryOp->op, left, right);
+                
+                // 特殊处理数组访问操作符
+                if (binaryOp->op == "[]" || node->type == NodeType::ARRAY_ACCESS) {
+                    string arrayName = generateCode(binaryOp->left);
+                    string index = generateCode(binaryOp->right);
+                    return generator.generateArrayAccess(arrayName, index);
+                } else {
+                    // 普通的算术或关系操作符
+                    string left = generateCode(binaryOp->left);
+                    string right = generateCode(binaryOp->right);
+                    return generator.generateArithmeticExpr(binaryOp->op, left, right);
+                }
             }
             
             case NodeType::ASSIGNMENT: {
                 auto assignment = static_pointer_cast<AssignmentNode>(node);
+                
+                // 检查目标是否为数组访问
+                if (assignment->target && assignment->target->type == NodeType::ARRAY_ACCESS) {
+                    auto targetBinaryOp = static_pointer_cast<BinaryOpNode>(assignment->target);
+                    // 数组赋值：arr[i] = val
+                    string arrayName = generateCode(targetBinaryOp->left);
+                    string index = generateCode(targetBinaryOp->right);
+                    string value = generateCode(assignment->value);
+                    generator.generateArrayAssignment(arrayName, index, value);
+                    return arrayName + "[" + index + "]";
+                }
+                
+                // 普通变量赋值
                 string target = generateCode(assignment->target);
                 string source = generateCode(assignment->value);
                 generator.generateAssignment(target, source);
@@ -313,6 +351,14 @@ public:
                 }
                 
                 return "";
+            }
+            
+            case NodeType::ARRAY_ACCESS: {
+                // 数组访问节点（如果使用专门的ARRAY_ACCESS类型）
+                auto arrayAccess = static_pointer_cast<BinaryOpNode>(node);
+                string arrayName = generateCode(arrayAccess->left);
+                string index = generateCode(arrayAccess->right);
+                return generator.generateArrayAccess(arrayName, index);
             }
             
             default:
