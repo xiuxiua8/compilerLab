@@ -1675,6 +1675,13 @@ private:
                 return make_shared<LiteralNode>(token.value, DataType::INT);
             case TokenType::FLOAT_NUM:
                 return make_shared<LiteralNode>(token.value, DataType::FLOAT);
+            case TokenType::REL_OP:
+                // 关系操作符，创建一个字面量节点来保存操作符值
+                return make_shared<LiteralNode>(token.value, DataType::UNKNOWN);
+            case TokenType::ADD:
+                return make_shared<LiteralNode>("+", DataType::UNKNOWN);
+            case TokenType::MUL:
+                return make_shared<LiteralNode>("*", DataType::UNKNOWN);
             default:
                 // 对于其他终结符，暂时返回nullptr或创建一个占位节点
                 return nullptr;
