@@ -977,6 +977,7 @@ private:
     vector<int> scopeStack;  // 作用域栈
     int currentScope;
     int nextAddress;
+    vector<SymbolEntry> allSymbols;  // 保存所有曾经声明的符号（用于调试输出）
     
 public:
     SymbolTable() : currentScope(0), nextAddress(0) {
@@ -1024,6 +1025,7 @@ public:
         entry.arraySize = arraySize;
         entry.address = nextAddress++;
         symbols.push_back(entry);
+        allSymbols.push_back(entry);  // 同时保存到allSymbols中
         
         DEBUG_PRINT(cout << "声明变量: " << name << " (类型: "; printDataType(type); cout << ", 作用域: " << currentScope << ", 地址: " << entry.address << ")" << endl);
         
@@ -1042,6 +1044,7 @@ public:
         SymbolEntry entry(name, returnType, 0, true);  // 函数总是在全局作用域
         entry.paramTypes = paramTypes;
         symbols.push_back(entry);
+        allSymbols.push_back(entry);  // 同时保存到allSymbols中
         
         DEBUG_PRINT(cout << "声明函数: " << name << " (返回类型: "; printDataType(returnType); cout << ", 参数个数: " << paramTypes.size() << ")" << endl);
         
@@ -1091,19 +1094,39 @@ public:
         }
         cout << endl;
         
-        cout << "\n符号列表:" << endl;
-        cout << setw(15) << "名称" << setw(10) << "类型" << setw(8) << "作用域" 
-             << setw(8) << "函数" << setw(8) << "地址" << endl;
-        cout << string(55, '-') << endl;
+        // 按作用域分组显示所有符号
+        map<int, vector<SymbolEntry>> scopeGroups;
+        for (const auto& entry : allSymbols) {
+            scopeGroups[entry.scope].push_back(entry);
+        }
         
-        for (const auto& entry : symbols) {
-            cout << setw(15) << entry.name;
-            cout << setw(10);
-            printDataType(entry.type);
-            cout << setw(8) << entry.scope;
-            cout << setw(8) << (entry.isFunction ? "是" : "否");
-            cout << setw(8) << entry.address;
+        // 显示每个作用域的符号
+        for (const auto& pair : scopeGroups) {
+            int scope = pair.first;
+            const vector<SymbolEntry>& entries = pair.second;
+            
+            cout << "\n作用域 " << scope;
+            if (scope == 0) {
+                cout << " (全局):";
+            } else if (scope == 1) {
+                cout << " (函数):";  
+            } else {
+                cout << " (局部):";
+            }
             cout << endl;
+            
+            cout << setw(15) << "名称" << setw(10) << "类型" << setw(8) << "函数" 
+                 << setw(8) << "地址" << endl;
+            cout << string(45, '-') << endl;
+            
+            for (const auto& entry : entries) {
+                cout << setw(15) << entry.name;
+                cout << setw(10);
+                printDataType(entry.type);
+                cout << setw(8) << (entry.isFunction ? "是" : "否");
+                cout << setw(8) << entry.address;
+                cout << endl;
+            }
         }
     }
     
@@ -2225,7 +2248,28 @@ int main(int argc, char* argv[]) {
     
     SLRParser slrparser;
     slrparser.loadSLRTable();
-    slrparser.parse(argv[1]);
+    auto ast = slrparser.parse(argv[1]);
+    
+    // 如果语法分析成功，进行语义分析
+    if (ast) {
+        if (auto program = static_pointer_cast<ProgramNode>(ast)) {
+            cout << "\n开始语义分析..." << endl;
+            SemanticAnalyzer analyzer;
+            bool semanticSuccess = analyzer.analyzeProgram(program);
+            
+            if (semanticSuccess) {
+                cout << "\n✅ 语义分析成功完成！" << endl;
+            } else {
+                cout << "\n❌ 语义分析发现错误。" << endl;
+                return 1;
+            }
+        } else {
+            cout << "\n警告：AST根节点不是Program类型" << endl;
+        }
+    } else {
+        cout << "\n❌ 语法分析失败，无法进行语义分析。" << endl;
+        return 1;
+    }
 
     return 0;
 }
