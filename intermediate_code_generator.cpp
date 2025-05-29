@@ -2,13 +2,20 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <set>
 #include <memory>
 #include <sstream>
 #include <iomanip>
+#include <algorithm>
+#include <fstream>
 #include <functional>
 #include "semantic_analyzer.cpp"
+#include "error_handler.cpp"
 
 using namespace std;
+
+// 全局错误处理器实例
+ErrorHandler* globalErrorHandler = nullptr;
 
 extern bool DEBUG_MODE;  
 #define DEBUG_PRINT(x) if(DEBUG_MODE) { x; }
@@ -404,7 +411,6 @@ int main(int argc, char* argv[]) {
         }
     }
     
-   
     if (inputFile.empty()) {
         cout << "用法: " << argv[0] << " [选项] <输入文件>" << endl;
         cout << "选项:" << endl;
@@ -412,7 +418,32 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
+    // 初始化全局错误处理器
+    globalErrorHandler = new ErrorHandler();
+    globalErrorHandler->loadSourceFile(inputFile);
+    
     try {
+        // 预处理：检查不支持的语法
+        cout << "=== 开始预处理检查 ===" << endl;
+        ifstream file(inputFile);
+        if (file.is_open()) {
+            string line;
+            int lineNumber = 1;
+            while (getline(file, line)) {
+                globalErrorHandler->checkUnsupportedSyntax(line, inputFile, lineNumber);
+                lineNumber++;
+            }
+            file.close();
+        }
+        
+        // 如果预处理发现致命错误，停止编译
+        if (globalErrorHandler->hasCompilationErrors()) {
+            cout << "=== 预处理发现错误，停止编译 ===" << endl;
+            globalErrorHandler->printAllErrors();
+            delete globalErrorHandler;
+            return 1;
+        }
+        
         // 创建语法分析器并解析文件
         SLRParser parser;
         parser.loadSLRTable();
@@ -421,16 +452,50 @@ int main(int argc, char* argv[]) {
         shared_ptr<ASTNode> ast = parser.parse(inputFile);
         
         if (!ast) {
-            cout << "错误：语法分析失败，无法生成AST" << endl;
+            globalErrorHandler->reportSyntaxError("语法分析失败，无法生成AST", inputFile);
+            globalErrorHandler->printAllErrors();
+            delete globalErrorHandler;
             return 1;
         }
         
         cout << "=== 语法分析完成，AST生成成功 ===" << endl;
         
+        // 语义分析
+        cout << "=== 开始语义分析 ===" << endl;
+        SemanticAnalyzer semanticAnalyzer;
+        bool semanticSuccess = false;
+        
+        if (ast->type == NodeType::PROGRAM) {
+            auto program = static_pointer_cast<ProgramNode>(ast);
+            semanticSuccess = semanticAnalyzer.analyzeProgram(program);
+        } else {
+            globalErrorHandler->reportSemanticError("AST根节点不是程序节点", inputFile);
+        }
+        
+        if (!semanticSuccess || semanticAnalyzer.getErrorCount() > 0) {
+            cout << "=== 语义分析发现错误 ===" << endl;
+            semanticAnalyzer.printErrors();
+            
+            // 将语义分析器的错误转移到全局错误处理器
+            for (size_t i = 0; i < semanticAnalyzer.getErrorCount(); i++) {
+                globalErrorHandler->reportSemanticError("语义分析错误", inputFile);
+            }
+        } else {
+            cout << "=== 语义分析完成，无错误 ===" << endl;
+        }
+        
         // 打印AST（可选）
         if (DEBUG_MODE) {
             cout << "\n=== AST结构 ===" << endl;
             ast->printTree();
+        }
+        
+        // 如果有错误，不生成中间代码
+        if (globalErrorHandler->hasCompilationErrors()) {
+            cout << "=== 由于存在编译错误，跳过中间代码生成 ===" << endl;
+            globalErrorHandler->printAllErrors();
+            delete globalErrorHandler;
+            return 1;
         }
         
         // 创建中间代码生成器
@@ -440,12 +505,20 @@ int main(int argc, char* argv[]) {
         // 生成中间代码
         astGenerator.generateProgramCode(ast);
         
+        // 打印最终的错误报告（包括警告）
+        globalErrorHandler->printAllErrors();
+        
         cout << "\n=== 程序执行完成 ===" << endl;
         
     } catch (const exception& e) {
-        cout << "错误：" << e.what() << endl;
+        globalErrorHandler->reportError(ErrorType::SYNTAX_ERROR, ErrorSeverity::FATAL,
+                                       "程序异常: " + string(e.what()), inputFile);
+        globalErrorHandler->printAllErrors();
+        delete globalErrorHandler;
         return 1;
     }
     
+    // 清理资源
+    delete globalErrorHandler;
     return 0;
 } 

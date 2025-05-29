@@ -4,10 +4,10 @@ CXX = g++
 CXXFLAGS = -std=c++14 -Wall -g
 LDFLAGS =
 
-FILE = ./code/16.src
+#FILE = ./code/3.src
 
 # Target files
-TARGETS = dfa lexer lr0 semantic_analyzer intermediate_code_generator 
+TARGETS = dfa lexer lr0 semantic_analyzer intermediate_code_generator error_handler
 
 # Default target
 all: $(TARGETS)
@@ -26,6 +26,10 @@ lr0: lab3/lr0.cpp
 # Semantic Analyzer 
 semantic_analyzer: semantic_analyzer.cpp
 	$(CXX) $(CXXFLAGS) -DSEMANTIC_ANALYZER_MAIN -o $@ $< $(LDFLAGS)
+
+# error_handler
+error_handler: error_handler.cpp
+	$(CXX) $(CXXFLAGS) -DERROR_HANDLER_MAIN -o $@ $< $(LDFLAGS)
 
 # Intermediate Code Generator
 intermediate_code_generator: intermediate_code_generator.cpp
